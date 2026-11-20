@@ -1,5 +1,7 @@
 """FastAPI service: Telegram webhook, backend → bot notifications, health check."""
 
+import asyncio
+import contextlib
 import hmac
 import logging
 from collections import OrderedDict
@@ -65,6 +67,7 @@ def create_app(settings: Settings | None = None, bot: Bot | None = None, api: Go
     async def lifespan(app: FastAPI):
         if settings.setup_bot_profile:
             await setup_bot_profile(bot, settings)
+        polling: asyncio.Task | None = None
         if settings.webhook_url:
             await bot.set_webhook(
                 url=settings.webhook_url,
@@ -72,7 +75,19 @@ def create_app(settings: Settings | None = None, bot: Bot | None = None, api: Go
                 allowed_updates=dp.resolve_used_update_types(),
             )
             log.info("Webhook set to %s", settings.webhook_url)
+        elif settings.polling:
+            # No public URL: receive updates by long polling in the background, while this app still serves
+            # /internal/notify for the backend. uvicorn owns the signals and the bot session.
+            await bot.delete_webhook(drop_pending_updates=False)
+            polling = asyncio.create_task(dp.start_polling(bot, handle_signals=False, close_bot_session=False))
+            log.info("Long polling started")
+        app.state.polling = polling
         yield
+        if polling is not None:
+            await dp.stop_polling()
+            polling.cancel()
+            with contextlib.suppress(asyncio.CancelledError, RuntimeError):
+                await polling
         await api.aclose()
         await bot.session.close()
 
