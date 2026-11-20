@@ -1,4 +1,7 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
+
+import respx
 
 from aiogram.exceptions import TelegramForbiddenError
 from fastapi.testclient import TestClient
@@ -86,3 +89,33 @@ def test_webhook_processes_each_update_once(settings, bot):
         assert c.post("/telegram/webhook", json=UPDATE, headers=h).json() == {"ok": True}
         assert c.post("/telegram/webhook", json=UPDATE, headers=h).json() == {"ok": True}  # Telegram retry
     assert app.state.dp.feed_update.await_count == 1
+
+
+def test_polling_runs_in_the_background_when_there_is_no_webhook(settings, bot):
+    """One container both receives Telegram updates (long polling) and serves /internal/notify."""
+    polling_settings = settings.model_copy(update={"polling": True})
+    bot.delete_webhook = AsyncMock()
+    app = create_app(polling_settings, bot=bot, api=GolowApi(settings.golow_api_url, KEY))
+    started = AsyncMock()
+    app.state.dp.start_polling = started
+    app.state.dp.stop_polling = AsyncMock()
+    with TestClient(app) as c:
+        assert c.get("/health").status_code == 200
+        assert c.post("/internal/notify", json={"telegramUserId": 1, "type": "you_won"}, headers={"X-Internal-Key": KEY}).status_code == 200
+    bot.delete_webhook.assert_awaited_once()
+    started.assert_awaited_once()
+    assert started.await_args.kwargs == {"handle_signals": False, "close_bot_session": False}
+    app.state.dp.stop_polling.assert_awaited_once()
+
+
+def test_link_sends_the_language(settings):
+    with respx.mock:
+        route = respx.post(f"{settings.golow_api_url}/internal/telegram/link").respond(200, json={"data": {"outcome": "AlreadyLinked", "userId": 1}})
+
+        async def go():
+            api = GolowApi(settings.golow_api_url, KEY)
+            await api.link(7, "0911", "A", None, None, "am")
+            await api.aclose()
+
+        asyncio.run(go())
+        assert b'"languageCode":"am"' in route.calls.last.request.content.replace(b" ", b"")

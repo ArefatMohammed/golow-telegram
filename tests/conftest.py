@@ -17,6 +17,7 @@ def settings() -> Settings:
         miniapp_url="https://app.test/tg",
         webhook_secret="hook-secret",
         setup_bot_profile=False,
+        polling=False,
         _env_file=None,
     )
 
