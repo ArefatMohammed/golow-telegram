@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     webhook_secret: SecretStr | None = None
     #: Set the bot's commands and menu button on start-up.
     setup_bot_profile: bool = True
+    #: Without WEBHOOK_URL, receive updates by long polling inside the web app (so /internal/notify keeps working).
+    polling: bool = True
 
     @field_validator("internal_key")
     @classmethod

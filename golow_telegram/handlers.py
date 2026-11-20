@@ -46,7 +46,7 @@ async def on_contact(message: Message, api: GolowApi, settings: Settings) -> Non
         await message.answer(TEXTS[lang]["not_own_contact"], reply_markup=keyboards.share_phone(lang))
         return
 
-    result = await api.link(user.id, contact.phone_number, user.first_name, user.last_name, user.username)
+    result = await api.link(user.id, contact.phone_number, user.first_name, user.last_name, user.username, user.language_code)
     reply = TEXTS[lang][_LINK_REPLY[result.outcome]]
     if result.outcome in ("LinkedExisting", "CreatedAccount", "AlreadyLinked"):
         await message.answer(reply, reply_markup=ReplyKeyboardRemove())

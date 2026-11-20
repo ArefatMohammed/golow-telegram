@@ -13,7 +13,7 @@ from aiogram.types import (
 from .texts import TEXTS, Lang
 
 #: Deep-link payloads the Mini App understands, e.g. t.me/GolowBidBot?start=auction_11.
-START_PAYLOAD = re.compile(r"^(auction|bid)_[0-9]{1,9}$")
+START_PAYLOAD = re.compile(r"^(auction|bid|pay)_[0-9]{1,9}$")
 
 
 def miniapp_link(base_url: str, start: str | None = None) -> str:

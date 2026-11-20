@@ -52,7 +52,7 @@ async def test_own_contact_links_account(settings):
     api.link.return_value = LinkResult("LinkedExisting", 2)
     msg = make_message(user_id=42, contact={"user_id": 42, "phone_number": "+251911222333"})
     await handlers.on_contact(msg, api, settings)
-    api.link.assert_awaited_once_with(42, "+251911222333", "Abebe", "Kebede", "abebe_k")
+    api.link.assert_awaited_once_with(42, "+251911222333", "Abebe", "Kebede", "abebe_k", "en")
     assert msg.answer.call_args_list[0].args[0] == TEXTS["en"]["linked_existing"]
 
 

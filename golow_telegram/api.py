@@ -34,6 +34,7 @@ class GolowApi:
         first_name: str | None,
         last_name: str | None,
         username: str | None,
+        language_code: str | None = None,
     ) -> LinkResult:
         body = {
             "telegramUserId": telegram_user_id,
@@ -41,6 +42,8 @@ class GolowApi:
             "firstName": first_name,
             "lastName": last_name,
             "username": username,
+            # Picks the language of the notifications the backend sends through the bot.
+            "languageCode": language_code,
         }
         response = await self._post("/internal/telegram/link", body)
         if response is None:

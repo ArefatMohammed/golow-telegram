@@ -40,7 +40,7 @@ async def test_own_contact_reaches_the_link_handler_with_injected_api(settings, 
     api.link.return_value = LinkResult("CreatedAccount", 9)
     dp = build_dispatcher(settings, api)
     await dp.feed_update(bot, update(2, contact={"phone_number": "+251911999888", "first_name": "Sara", "user_id": 42}))
-    api.link.assert_awaited_once_with(42, "+251911999888", "Sara", None, None)
+    api.link.assert_awaited_once_with(42, "+251911999888", "Sara", None, None, "en")
     assert sent_texts(bot)[0] == TEXTS["en"]["created_account"]
 
 
