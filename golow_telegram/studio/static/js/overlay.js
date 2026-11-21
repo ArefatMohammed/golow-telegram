@@ -61,7 +61,7 @@
     var s = G.live.status(), el = $("status");
     el.className = "status";
     if (state.error) { el.textContent = "API: " + state.error; el.classList.add("bad"); return; }
-    el.textContent = s === "demo" ? "● demo" : s === "live" ? "● live" : s === "reconnecting" ? "reconnecting…" : "connecting…";
+    el.textContent = s === "live" ? "● live" : s === "reconnecting" ? "reconnecting…" : "connecting…";
     if (s === "reconnecting") el.classList.add("bad");
   }
 
@@ -253,10 +253,9 @@
   Bus.on("hype", function (d) { hype(d.seconds); });
   Bus.on("mutebids", function (d) { state.mute = !!d.on; if (state.mute) queue.clear(); });
   Bus.on("testbid", function () {
-    if (G.demo && state.id) G.demoServer.addBid(state.id);
-    else { var m = state.mute; state.mute = false; alertBids(1); state.mute = m; }
+    // A rehearsal alert only: the count isn't changed.
+    var m = state.mute; state.mute = false; alertBids(1); state.mute = m;
   });
-  Bus.on("finish", function () { if (G.demo && state.id) G.demoServer.forceFinish(state.id); });
   Bus.on("winner", function (d) { showWinner(d.show !== false); });
   Bus.on("ping", function () { heartbeat(); });
 

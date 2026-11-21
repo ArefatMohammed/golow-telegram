@@ -13,19 +13,14 @@
   // ---------- header ----------
   var cfg = G.config || {};
   $("who").textContent = cfg.user && cfg.user.name ? cfg.user.name : "";
-  $("mode").value = G.demo ? "demo" : "live";
-  $("mode").addEventListener("change", function () {
-    G.lsSet("golow.demo", this.value === "demo" ? "1" : null);
-    location.href = location.pathname; // drop ?demo= so the stored choice applies
-  });
   $("logout").addEventListener("click", function () {
     fetch("auth/logout", { method: "POST", credentials: "same-origin" }).finally(function () { location.replace("login"); });
   });
 
   function apiPill() {
     var s = G.live.status(), p = $("apiPill");
-    p.className = "pill " + (s === "live" || s === "demo" ? "ok" : s === "reconnecting" ? "warn" : "");
-    p.textContent = s === "demo" ? "API: demo" : s === "live" ? "API: live · " + (cfg.apiHost || "") : s === "reconnecting" ? "API: reconnecting…" : "API: connecting…";
+    p.className = "pill " + (s === "live" ? "ok" : s === "reconnecting" ? "warn" : "");
+    p.textContent = s === "live" ? "API: live · " + (cfg.apiHost || "") : s === "reconnecting" ? "API: reconnecting…" : "API: connecting…";
     if (apiError) { p.className = "pill bad"; p.textContent = "API: error"; }
   }
   var apiError = false;
@@ -182,8 +177,6 @@
   $("rvHide").addEventListener("click", function () { Bus.send("reveal", { hide: true }); log("reveal", "Reveal hidden"); });
   $("wGo").addEventListener("click", function () { Bus.send("winner", { show: true }); log("winner", "Show winner"); });
   $("wHide").addEventListener("click", function () { Bus.send("winner", { show: false }); log("winner", "Hide winner"); });
-  $("finish").classList.toggle("hidden", !G.demo);
-  $("finish").addEventListener("click", function () { Bus.send("finish", {}); log("closed", "Finish now (demo)"); });
 
   $("voice").value = Sound.mode();
   $("vol").value = Sound.volume();
@@ -199,7 +192,6 @@
     var q = [];
     if (page === "overlay" && onair) q.push("auction=" + onair);
     if (sceneKey) q.push("key=" + encodeURIComponent(sceneKey.key));
-    if (G.demo) q.push("demo=1");
     if (extra) q.push(extra);
     return base + page + ".html" + (q.length ? "?" + q.join("&") : "");
   }
@@ -208,7 +200,7 @@
     $("uOverlay").value = sceneUrl("overlay");
     $("uBoard").value = sceneUrl("board");
     $("uReveal").value = sceneUrl("reveal");
-    $("uPanel").value = base + (G.demo ? "?demo=1" : "");
+    $("uPanel").value = base;
     if (sceneKey) {
       var days = Math.round((sceneKey.expiresAt * 1000 - Date.now()) / 86400000);
       $("keyNote").textContent = "Scene links work for " + days + " more day" + (days === 1 ? "" : "s") + " (until " + new Date(sceneKey.expiresAt * 1000).toLocaleDateString() + ").";
@@ -254,5 +246,5 @@
   renderUrls(); fitPreview(); loadKey(); loadAuctions();
   selectPreview("overlay");
   setTimeout(function () { Bus.send("ping", {}); }, 500);
-  log("info", "Panel ready" + (G.demo ? " (demo)" : ""));
+  log("info", "Panel ready");
 })();
