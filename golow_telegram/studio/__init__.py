@@ -127,6 +127,8 @@ def build_router(settings: Settings, api: GolowApi, feed: NewUserFeed) -> APIRou
         result = await api.admin_login(body.phone.strip(), body.password)
         if result.outcome == "invalid":
             return JSONResponse({"error": "Wrong phone number or password."}, status_code=401)
+        if result.outcome == "invalid_phone":
+            return JSONResponse({"error": "Enter a valid Ethiopian phone number (09xxxxxxxx, 07xxxxxxxx or +251…)."}, status_code=400)
         if result.outcome == "not_admin":
             log.warning("Studio login refused for a non-admin account (user %s).", result.user_id)
             return JSONResponse({"error": "This account is not an active GOLOW admin."}, status_code=403)

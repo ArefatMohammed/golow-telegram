@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 LinkOutcome = Literal["LinkedExisting", "CreatedAccount", "AlreadyLinked", "conflict", "invalid", "error"]
 
 
-AdminLoginOutcome = Literal["ok", "invalid", "not_admin", "throttled", "error"]
+AdminLoginOutcome = Literal["ok", "invalid", "invalid_phone", "not_admin", "throttled", "error"]
 
 
 @dataclass(frozen=True)
@@ -93,7 +93,9 @@ class GolowApi:
             return AdminLogin("error")
         if response.status_code == 429:
             return AdminLogin("throttled")
-        if response.status_code in (400, 401, 403, 404):
+        if response.status_code == 400:
+            return AdminLogin("invalid_phone")  # e.g. "Enter a valid Ethiopian phone number (09xxxxxxxx, …)"
+        if response.status_code in (401, 403, 404):
             return AdminLogin("invalid")
         if response.status_code != 200:
             log.error("Studio login failed: HTTP %s", response.status_code)

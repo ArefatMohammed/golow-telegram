@@ -93,6 +93,9 @@ def test_wrong_password_and_api_down(studio_settings, bot):
     with make_client(studio_settings, bot) as c:
         route.respond(401, json={"success": False})
         assert c.post("/studio/auth/login", json={"phone": "0911000000", "password": "x"}).status_code == 401
+        route.respond(400, json={"success": False, "message": "Enter a valid Ethiopian phone number"})
+        r = c.post("/studio/auth/login", json={"phone": "091100000", "password": "x"})
+        assert r.status_code == 400 and "Ethiopian phone number" in r.json()["error"]
         route.side_effect = httpx.ConnectError("down")
         assert c.post("/studio/auth/login", json={"phone": "0911000000", "password": "x"}).status_code == 502
 
