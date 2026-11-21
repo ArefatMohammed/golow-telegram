@@ -11,6 +11,16 @@ log = logging.getLogger(__name__)
 LinkOutcome = Literal["LinkedExisting", "CreatedAccount", "AlreadyLinked", "conflict", "invalid", "error"]
 
 
+AdminLoginOutcome = Literal["ok", "invalid", "not_admin", "throttled", "error"]
+
+
+@dataclass(frozen=True)
+class AdminLogin:
+    outcome: AdminLoginOutcome
+    user_id: int | None = None
+    name: str | None = None
+
+
 @dataclass(frozen=True)
 class LinkResult:
     outcome: LinkOutcome
@@ -63,6 +73,54 @@ class GolowApi:
     async def unlink(self, telegram_user_id: int) -> bool:
         response = await self._post("/internal/telegram/unlink", {"telegramUserId": telegram_user_id})
         return response is not None and response.status_code == 200
+
+    async def admin_login(self, phone: str, password: str) -> AdminLogin:
+        """Signs in with the admin platform's credentials (POST /auth/login) and confirms the account is an active
+        admin by calling an admin-only endpoint, which applies the backend's own Admin policy. The backend session
+        is revoked right after: the studio keeps its own session and never stores GOLOW tokens."""
+        try:
+            response = await self._client.post("/auth/login", json={"phone": phone, "password": password})
+        except httpx.TransportError as exc:
+            log.warning("GOLOW API /auth/login failed: %s", exc)
+            return AdminLogin("error")
+        if response.status_code == 429:
+            return AdminLogin("throttled")
+        if response.status_code in (400, 401, 403, 404):
+            return AdminLogin("invalid")
+        if response.status_code != 200:
+            log.error("Studio login failed: HTTP %s", response.status_code)
+            return AdminLogin("error")
+        data = response.json().get("data") or {}
+        access, refresh = data.get("accessToken"), data.get("refreshToken")
+        if not access:
+            return AdminLogin("invalid")
+        auth = {"Authorization": f"Bearer {access}"}
+        try:
+            check = await self._client.get("/admin/auctions", params={"pageSize": 1}, headers=auth)
+        except httpx.TransportError as exc:
+            log.warning("GOLOW API admin check failed: %s", exc)
+            check = None
+        finally:
+            try:
+                await self._client.post("/auth/logout", json={"refreshToken": refresh}, headers=auth)
+            except httpx.TransportError:
+                pass
+        if check is None:
+            return AdminLogin("error")
+        if check.status_code in (401, 403):
+            return AdminLogin("not_admin")
+        if check.status_code != 200:
+            log.error("Studio admin check failed: HTTP %s", check.status_code)
+            return AdminLogin("error")
+        return AdminLogin("ok", data.get("userId"), data.get("fullName"))
+
+    async def public_get(self, path: str, params: dict[str, str]) -> httpx.Response | None:
+        """An anonymous GET on the public API (the studio's read-only proxy). No internal key is sent."""
+        try:
+            return await self._client.get(path, params=params)
+        except httpx.TransportError as exc:
+            log.warning("GOLOW API GET %s failed: %s", path, exc)
+            return None
 
     async def _post(self, path: str, body: dict) -> httpx.Response | None:
         # Linking is idempotent on the backend, so one retry on a network error is safe.

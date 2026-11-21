@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="am">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080">
+<title>GOLOW Live — Overlay</title>
+<link rel="stylesheet" href="css/scene.css">
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="card glass hidden" id="card">
+    <img class="thumb hidden" id="thumb" alt="">
+    <div class="title" id="title"></div>
+    <div class="meta" id="meta"></div>
+    <div class="meta" id="meta2"></div>
+    <div class="bar" id="bar"><i></i></div>
+    <div class="row"><span class="count" id="count"></span><span class="timer" id="timer"></span></div>
+    <div class="badge hidden" id="hot"></div>
+  </div>
+
+  <div class="panel glass rules hidden" id="rules"></div>
+  <div class="panel glass message hidden" id="message"></div>
+  <div class="panel glass winnerp hidden" id="winner"></div>
+
+  <div class="toasts" id="toasts"></div>
+  <div class="cta hidden" id="cta"></div>
+  <div class="hype hidden" id="hype"></div>
+  <div class="fx" id="fx"></div>
+  <div class="status" id="status"></div>
+</div>
+<script src="config.js"></script>
+<script src="js/strings.js"></script>
+<script src="js/bus.js"></script>
+<script src="js/golow-api.js"></script>
+<script src="js/sound.js"></script>
+<script src="js/effects.js"></script>
+<script src="js/overlay.js"></script>
+</body>
+</html>

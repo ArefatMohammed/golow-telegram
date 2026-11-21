@@ -13,7 +13,7 @@ from aiogram.enums import ParseMode
 from aiogram.types import BotCommand, MenuButtonWebApp, Update, WebAppInfo
 from fastapi import FastAPI, Header, HTTPException, Request
 
-from . import notify
+from . import notify, studio
 from .api import GolowApi
 from .config import Settings, get_settings
 from .handlers import build_router
@@ -96,6 +96,8 @@ def create_app(settings: Settings | None = None, bot: Bot | None = None, api: Go
     app.state.bot = bot
     app.state.dp = dp
     app.include_router(notify.router)
+    if settings.studio_secret is not None:
+        studio.mount(app, settings, api)
 
     @app.post("/telegram/webhook")
     async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str | None = Header(default=None)) -> dict:

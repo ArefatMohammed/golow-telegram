@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GOLOW Live Studio</title>
+<link rel="stylesheet" href="css/panel.css">
+</head>
+<body>
+<header>
+  <h1>GOLOW Live Studio</h1>
+  <span class="pill" id="apiPill">API: …</span>
+  <span class="pill" id="ovPill">Overlay: not seen</span>
+  <span class="spacer"></span>
+  <select id="mode" title="Data source" aria-label="Data source">
+    <option value="live">Live data</option>
+    <option value="demo">Demo (fake data)</option>
+  </select>
+  <span class="muted who" id="who"></span>
+  <button id="logout" type="button">Sign out</button>
+</header>
+
+<main>
+  <div class="col">
+    <section>
+      <h2>Live auctions <button id="refresh" type="button">Refresh</button></h2>
+      <div class="auctions" id="auctions"><div class="muted">Loading…</div></div>
+    </section>
+    <section>
+      <h2>Activity</h2>
+      <ul class="log" id="log"></ul>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="onair">
+      <h2>On air</h2>
+      <div class="t" id="oaTitle">—</div>
+      <div class="stats" id="oaStats"></div>
+      <div class="bar" id="oaBar"><i style="width:0"></i></div>
+      <div class="muted" id="oaNote" style="margin-top:6px"></div>
+    </section>
+
+    <section>
+      <h2>Show on stream</h2>
+      <div class="btns">
+        <button type="button" id="tRules">Rules card</button>
+        <button type="button" id="tCta">Bid-now banner</button>
+        <button type="button" id="tCard" class="on">Auction card</button>
+      </div>
+      <div class="btns" style="margin-top:8px">
+        <button type="button" id="bHype">Hype countdown (10 s)</button>
+        <button type="button" id="bMute">Mute bid alerts</button>
+        <button type="button" id="bTest">Test bid alert</button>
+      </div>
+      <label for="ctaText">Banner text (Amharic | English)</label>
+      <div class="row"><input id="ctaText" value="አሁኑኑ ይጫረቱ! | Bid now on golow.et"><button type="button" id="ctaSet">Update</button></div>
+    </section>
+
+    <section>
+      <h2>Message</h2>
+      <textarea id="msg" placeholder="Line 1: big (Amharic)&#10;Line 2: small (English)"></textarea>
+      <div class="row" style="margin-top:8px">
+        <select id="msgDur" aria-label="Duration"><option value="6">6 s</option><option value="10" selected>10 s</option><option value="20">20 s</option></select>
+        <button type="button" class="primary" id="msgGo">Flash</button>
+      </div>
+      <label>Quick messages</label>
+      <div class="lines" id="quick"></div>
+    </section>
+
+    <section>
+      <h2>Results</h2>
+      <div class="btns">
+        <button type="button" class="primary" id="rvGo">Animated reveal</button>
+        <button type="button" id="rvHide">Hide reveal</button>
+        <button type="button" id="wGo">Show winner</button>
+        <button type="button" id="wHide">Hide winner</button>
+        <button type="button" class="danger hidden" id="finish">Finish now (demo)</button>
+      </div>
+      <p class="muted">The API reveals bids only after the auction is finalized.</p>
+    </section>
+
+    <section>
+      <h2>Sound</h2>
+      <div class="grid2">
+        <select id="voice" aria-label="Sound mode">
+          <option value="synth">Effects</option>
+          <option value="clips">My clips</option>
+          <option value="tts">Effects + English voice</option>
+          <option value="off">Silent</option>
+        </select>
+        <input id="vol" type="range" min="0" max="1" step="0.05" aria-label="Volume">
+      </div>
+    </section>
+
+    <section>
+      <h2>Host script</h2>
+      <div class="lines" id="script"></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section>
+      <h2>Preview
+        <span class="tabs">
+          <button type="button" data-pv="overlay" class="on">Overlay</button>
+          <button type="button" data-pv="board">Live board</button>
+          <button type="button" data-pv="reveal">Reveal</button>
+        </span>
+      </h2>
+      <div class="pv" id="pv"><iframe id="pvFrame" title="Scene preview"></iframe></div>
+    </section>
+
+    <section>
+      <h2>OBS setup</h2>
+      <label>Overlay (on-air auction)</label><div class="url"><input readonly id="uOverlay"><button type="button" data-copy="uOverlay">Copy</button></div>
+      <label>Live board</label><div class="url"><input readonly id="uBoard"><button type="button" data-copy="uBoard">Copy</button></div>
+      <label>Reveal</label><div class="url"><input readonly id="uReveal"><button type="button" data-copy="uReveal">Copy</button></div>
+      <label>This panel (Custom Browser Dock)</label><div class="url"><input readonly id="uPanel"><button type="button" data-copy="uPanel">Copy</button></div>
+      <p class="muted" id="keyNote"></p>
+      <details>
+        <summary>Step-by-step OBS guide</summary>
+        <ol>
+          <li>Settings → Video: base and output canvas <code>1080×1920</code>.</li>
+          <li>Docks → Custom Browser Docks: add <b>This panel</b> and sign in once inside the dock.</li>
+          <li>Add a Browser Source for <b>Overlay</b>: width 1080, height 1920, tick <b>Control audio via OBS</b>.</li>
+          <li>Add Browser Sources for <b>Live board</b> and <b>Reveal</b> the same way, in their own scenes or above the overlay.</li>
+          <li>Pick the auction here: the overlay follows. Use the preview to check before going live.</li>
+          <li>Scene links contain a key and stop working after it expires. Copy fresh ones when the note above says so.</li>
+          <li>The panel drives the scenes only when it runs inside OBS (dock) or in the same browser as the scenes.</li>
+        </ol>
+      </details>
+    </section>
+  </div>
+</main>
+
+<script src="config.js"></script>
+<script src="js/strings.js"></script>
+<script src="js/bus.js"></script>
+<script src="js/golow-api.js"></script>
+<script src="js/sound.js"></script>
+<script src="js/panel.js"></script>
+</body>
+</html>

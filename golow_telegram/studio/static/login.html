@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GOLOW Live Studio — Sign in</title>
+<link rel="stylesheet" href="css/panel.css">
+</head>
+<body class="login">
+<form class="box" id="form" autocomplete="on">
+  <h1>GOLOW Live Studio</h1>
+  <p class="muted">Sign in with your GOLOW admin account.</p>
+  <label>Phone number<input name="phone" type="tel" inputmode="tel" autocomplete="username" placeholder="09…" required></label>
+  <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+  <button type="submit" id="go">Sign in</button>
+  <p class="err" id="err" role="alert"></p>
+</form>
+<script>
+document.getElementById("form").addEventListener("submit", function (e) {
+  e.preventDefault();
+  var f = e.target, btn = document.getElementById("go"), err = document.getElementById("err");
+  btn.disabled = true; err.textContent = "";
+  fetch("auth/login", {
+    method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone: f.phone.value, password: f.password.value })
+  }).then(function (r) {
+    return r.json().catch(function () { return {}; }).then(function (b) {
+      if (r.ok) { location.replace("./"); return; }
+      err.textContent = b.error || (r.status === 422 ? "Enter your phone number and password." : "Sign-in failed (HTTP " + r.status + ").");
+      f.password.value = "";
+    });
+  }).catch(function () { err.textContent = "Network error. Try again."; })
+    .then(function () { btn.disabled = false; });
+});
+</script>
+</body>
+</html>

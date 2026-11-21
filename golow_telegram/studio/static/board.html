@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="am">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080">
+<title>GOLOW Live — Board</title>
+<link rel="stylesheet" href="css/scene.css">
+</head>
+<body>
+<div class="stage">
+  <div class="board glass">
+    <h1><span class="dot"></span><span id="head"></span></h1>
+    <div class="rows" id="rows"></div>
+  </div>
+  <div class="status" id="status"></div>
+</div>
+<script src="config.js"></script>
+<script src="js/strings.js"></script>
+<script src="js/bus.js"></script>
+<script src="js/golow-api.js"></script>
+<script src="js/sound.js"></script>
+<script>
+(function () {
+  "use strict";
+  var G = Golow, U = G.util, T = GolowText, esc = U.esc;
+  var params = new URLSearchParams(location.search);
+  if (params.get("preview") === "1") document.body.classList.add("checker");
+  var max = Math.max(1, Math.min(10, Number(params.get("max")) || 5));
+  var sound = params.get("sound") !== "0";
+  var items = [], counts = {};
+  document.getElementById("head").innerHTML = esc(T.board.am) + '<span class="en">' + esc(T.board.en) + "</span>";
+
+  function pct(a) {
+    if (a.targetBidCount) return Math.min(1, (a.activeBidCount || 0) / a.targetBidCount);
+    var s = Date.parse(a.startsAt), e = Date.parse(a.endsAt), n = U.now();
+    return isFinite(s) && isFinite(e) && e > s ? Math.max(0, Math.min(1, (n - s) / (e - s))) : 0;
+  }
+
+  function render(flashId) {
+    var list = items.filter(U.isLive).sort(function (x, y) { return pct(y) - pct(x) || (y.activeBidCount || 0) - (x.activeBidCount || 0); }).slice(0, max);
+    document.getElementById("rows").innerHTML = list.map(function (a) {
+      var img = a.imageUrl ? '<img src="' + esc(a.imageUrl) + '" alt="" onerror="this.outerHTML=\'<div class=ph>🎁</div>\'">' : '<div class="ph">🎁</div>';
+      var count = a.targetBidCount ? a.activeBidCount + " / " + a.targetBidCount : String(a.activeBidCount || 0);
+      return '<div class="brow' + (a.id === flashId ? " flash" : "") + '">' + img +
+        '<div class="t">' + esc(a.title) + "</div>" +
+        '<div class="m">' + esc(count) + " " + T.bidsUnit + " · " + esc(U.money(a.tenderFeeAmount, a.currency)) + " · #" + esc(a.shortCode) + "</div>" +
+        '<div class="bar' + (a.targetBidCount ? "" : " timebased") + '"><i style="width:' + (pct(a) * 100).toFixed(1) + '%"></i></div></div>';
+    }).join("");
+  }
+
+  function reload() {
+    return G.listAuctions().then(function (list) {
+      items = list; list.forEach(function (a) { counts[a.id] = a.activeBidCount; });
+      document.getElementById("status").textContent = "";
+      render();
+    }).catch(function (e) { document.getElementById("status").textContent = "API: " + e.message; });
+  }
+
+  G.live.on(function (type, p) {
+    if (type === "bidCountChanged") {
+      var a = items.find(function (x) { return x.id === Number(p.auctionId); });
+      if (!a) return reload();
+      var up = p.activeBidCount > (counts[a.id] || 0);
+      a.activeBidCount = counts[a.id] = p.activeBidCount;
+      render(up ? a.id : null);
+      if (up && sound) GolowSound.play("new-bid");
+    } else if (type !== "bidCountChanged") reload();
+  });
+  G.live.onStatus(function (s) { if (s === "reconnecting") document.getElementById("status").textContent = "reconnecting…"; });
+  G.live.joinList();
+  reload();
+  setInterval(reload, 60000);
+})();
+</script>
+</body>
+</html>

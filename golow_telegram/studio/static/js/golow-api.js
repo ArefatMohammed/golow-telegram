@@ -1,0 +1,288 @@
+/* window.Golow: config, REST client (through the studio's read-only proxy), SignalR live events, demo server,
+ * helpers. Classic script (no modules) so pages run as OBS Browser Sources. */
+(function () {
+  "use strict";
+
+  var cfg = window.GOLOW_STUDIO || {};
+  var params = new URLSearchParams(location.search);
+
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, String(v)); } catch (e) { /* private mode */ } }
+
+  var demo = params.has("demo") ? params.get("demo") === "1" : lsGet("golow.demo") === "1";
+  var key = params.get("key") || "";
+  var role = params.get("role") || "";
+
+  // ---------- helpers ----------
+  var ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return ESC[c]; }); }
+
+  function money(amount, currency) {
+    var n = Number(amount);
+    if (amount == null || !isFinite(n)) return "—";
+    return (currency || "ETB") + " " + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  /** "Nd HH:MM:SS" (days only when > 0); null when the time is up. */
+  function fmtCountdown(ms) {
+    if (!(ms > 0)) return null;
+    var s = Math.floor(ms / 1000), d = Math.floor(s / 86400);
+    s -= d * 86400;
+    var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return (d > 0 ? d + "d " : "") + pad(h) + ":" + pad(m) + ":" + pad(sec);
+  }
+
+  function statusIs(a, name) { return !!a && String(a.status || "").toLowerCase() === name.toLowerCase(); }
+  function isLive(a) { return statusIs(a, "live"); }
+
+  // Server clock skew (server UTC − local clock), from JoinAuction results and REST serverTimeUtc.
+  var skew = 0;
+  function noteServerTime(t) { var ms = Date.parse(t); if (isFinite(ms)) skew = ms - Date.now(); }
+  function now() { return Date.now() + skew; }
+
+  /** Alerts at most one per `interval` ms; a backlog collapses into one "+N" so the stream never lags. */
+  function AlertQueue(interval, emit, clock) {
+    this.interval = interval; this.emit = emit; this.clock = clock || Date.now;
+    this.pending = 0; this.last = -Infinity; this.timer = null;
+  }
+  AlertQueue.prototype.push = function (n) {
+    this.pending += n;
+    if (this.timer) return;
+    var self = this, wait = Math.max(0, this.last + this.interval - this.clock());
+    this.timer = setTimeout(function () { self.timer = null; self.flush(); }, wait);
+  };
+  AlertQueue.prototype.flush = function () {
+    if (this.pending <= 0) return;
+    var n = this.pending;
+    this.pending = 0; this.last = this.clock();
+    this.emit(n);
+  };
+  AlertQueue.prototype.clear = function () { clearTimeout(this.timer); this.timer = null; this.pending = 0; };
+
+  /** Bids in the last `windowMs` (default 60 s). */
+  function RateWindow(windowMs) { this.windowMs = windowMs || 60000; this.hits = []; }
+  RateWindow.prototype.record = function (n, t) { t = t == null ? Date.now() : t; for (var i = 0; i < n; i++) this.hits.push(t); this.prune(t); };
+  RateWindow.prototype.prune = function (t) { var cut = t - this.windowMs; while (this.hits.length && this.hits[0] <= cut) this.hits.shift(); if (this.hits.length > 5000) this.hits.splice(0, this.hits.length - 5000); };
+  RateWindow.prototype.count = function (t) { this.prune(t == null ? Date.now() : t); return this.hits.length; };
+
+  /** Reveal step: about 22 s spread over the rows before the winner, 350–1500 ms per row, divided by speed. */
+  function revealStep(rowsBeforeWinner, speed) {
+    var step = Math.min(1500, Math.max(350, 22000 / Math.max(1, rowsBeforeWinner)));
+    return step / Math.max(0.1, Number(speed) || 1);
+  }
+
+  // ---------- REST (through /studio/api, so no CORS setup is needed on the API) ----------
+  function HttpError(status, message) { this.status = status; this.message = message; }
+  HttpError.prototype = Object.create(Error.prototype);
+
+  function get(path) {
+    var headers = key ? { "X-Studio-Key": key } : {};
+    return fetch("api/" + path, { headers: headers, credentials: "same-origin", cache: "no-store" }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (body) {
+        if (!r.ok || body.success === false) throw new HttpError(r.status, (body && body.message) || ("HTTP " + r.status));
+        if (body.data && body.data.serverTimeUtc) noteServerTime(body.data.serverTimeUtc);
+        return body.data;
+      });
+    });
+  }
+
+  var rest = {
+    listAuctions: function () { return get("auctions?status=live&pageSize=50").then(function (d) { return (d && d.items) || []; }); },
+    getAuction: function (id) { return get("auctions/" + Number(id)); },
+    getResult: function (id) { return get("auctions/" + Number(id) + "/result"); },
+    /** All bid groups, lowest amount first (up to 5 pages of 100). 403 until the auction is finalized. */
+    getBidGroups: function (id) {
+      var items = [], total = 0;
+      function page(n) {
+        return get("auctions/" + Number(id) + "/bids?page=" + n + "&pageSize=100").then(function (d) {
+          var got = (d && d.items) || [];
+          items = items.concat(got); total = (d && d.totalCount) || items.length;
+          if (got.length === 100 && items.length < total && n < 5) return page(n + 1);
+          return { items: items, totalCount: total };
+        });
+      }
+      return page(1);
+    }
+  };
+
+  // ---------- live events ----------
+  var EVENTS = ["bidCountChanged", "auctionClosed", "auctionStarted", "auctionFinalized", "auctionCancelled"];
+  var listeners = [], statusListeners = [];
+  var status = demo ? "demo" : "connecting";
+  function setStatus(s) { if (s === status) return; status = s; statusListeners.forEach(function (fn) { try { fn(s); } catch (e) { console.error(e); } }); }
+  function dispatch(type, payload) {
+    if (payload && payload.serverTimeUtc) noteServerTime(payload.serverTimeUtc);
+    listeners.slice().forEach(function (fn) { try { fn(type, payload || {}); } catch (e) { console.error(e); } });
+  }
+
+  var groups = { auctions: {}, list: false };
+  var conn = null, starting = false;
+
+  function loadSignalR() {
+    if (window.signalR) return Promise.resolve();
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.7/dist/browser/signalr.min.js";
+      s.onload = function () { resolve(); };
+      s.onerror = function () { reject(new Error("Couldn't load the SignalR client")); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function rejoin() {
+    if (!conn || conn.state !== "Connected") return;
+    Object.keys(groups.auctions).forEach(function (id) {
+      conn.invoke("JoinAuction", Number(id)).then(function (t) { if (t) noteServerTime(t); }).catch(function (e) { console.warn("JoinAuction", e); });
+    });
+    if (groups.list) conn.invoke("JoinAuctionList").then(function (t) { if (t) noteServerTime(t); }).catch(function (e) { console.warn("JoinAuctionList", e); });
+  }
+
+  function start() {
+    if (demo || starting || !cfg.hubUrl) return;
+    starting = true;
+    loadSignalR().then(function () {
+      if (!conn) {
+        // WebSockets + skipNegotiation: no negotiate request, so no CORS preflight.
+        conn = new signalR.HubConnectionBuilder()
+          .withUrl(cfg.hubUrl, { skipNegotiation: true, transport: signalR.HttpTransportType.WebSockets })
+          .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+          .configureLogging(signalR.LogLevel.Warning)
+          .build();
+        EVENTS.forEach(function (ev) { conn.on(ev, function (p) { dispatch(ev, p); }); });
+        conn.onreconnecting(function () { setStatus("reconnecting"); });
+        conn.onreconnected(function () { setStatus("live"); rejoin(); dispatch("reconnected", {}); });
+        conn.onclose(function () { setStatus("reconnecting"); setTimeout(function () { starting = false; start(); }, 30000); });
+      }
+      return conn.start().then(function () { starting = false; setStatus("live"); rejoin(); dispatch("reconnected", {}); });
+    }).catch(function (e) {
+      console.warn("Hub connection failed", e);
+      starting = false; setStatus("reconnecting");
+      setTimeout(start, 5000);
+    });
+  }
+
+  var live = {
+    on: function (fn) { listeners.push(fn); return function () { listeners = listeners.filter(function (f) { return f !== fn; }); }; },
+    onStatus: function (fn) { statusListeners.push(fn); fn(status); },
+    status: function () { return status; },
+    joinAuction: function (id) {
+      if (id == null || groups.auctions[id]) return;
+      groups.auctions[id] = true;
+      if (demo) return demoServer.subscribe();
+      if (conn && conn.state === "Connected") conn.invoke("JoinAuction", Number(id)).then(function (t) { if (t) noteServerTime(t); }).catch(function () {});
+      else start();
+    },
+    leaveAuction: function (id) {
+      if (!groups.auctions[id]) return;
+      delete groups.auctions[id];
+      if (!demo && conn && conn.state === "Connected") conn.invoke("LeaveAuction", Number(id)).catch(function () {});
+    },
+    joinList: function () {
+      if (groups.list) return;
+      groups.list = true;
+      if (demo) return demoServer.subscribe();
+      if (conn && conn.state === "Connected") conn.invoke("JoinAuctionList").catch(function () {});
+      else start();
+    }
+  };
+
+  // ---------- demo server (same shapes as the API; one per page) ----------
+  var demoServer = (function () {
+    function at(minutes) { return new Date(Date.now() + minutes * 60000).toISOString(); }
+    var auctions = [
+      { id: 7, shortCode: 7, title: "Apple iPhone 17 Pro Max", tenderFeeAmount: 50, retailPrice: 189999, activeBidCount: 41, targetBidCount: 60, endMode: "BreakEvenBased", endsAt: at(600) },
+      { id: 14, shortCode: 14, title: "IPHONE 17 PRO MAX", tenderFeeAmount: 95, retailPrice: 189999, activeBidCount: 128, targetBidCount: null, endMode: "TimeBased", endsAt: at(95) },
+      { id: 21, shortCode: 21, title: "Full Tank Auction", tenderFeeAmount: 30, retailPrice: 9000, activeBidCount: 97, targetBidCount: 180, endMode: "BreakEvenBased", endsAt: at(900) },
+      { id: 22, shortCode: 22, title: "Dubai Chiffon Abaya", tenderFeeAmount: 100, retailPrice: 12000, activeBidCount: 64, targetBidCount: 100, endMode: "BreakEvenBased", endsAt: at(700) }
+    ].map(function (a) {
+      return Object.assign({ imageUrl: null, currency: "ETB", status: "Live", outcome: null, winner: null, groups: null, startsAt: at(-120) }, a);
+    });
+    var timer = null;
+
+    function find(id) { return auctions.find(function (a) { return a.id === Number(id); }); }
+    function clone(a) { var c = Object.assign({}, a); delete c.groups; c.serverTimeUtc = new Date().toISOString(); return c; }
+    function emit(type, payload) { setTimeout(function () { dispatch(type, Object.assign({ serverTimeUtc: new Date().toISOString() }, payload)); }, 0); }
+    function rnd(n) { return Math.floor(Math.random() * n); }
+    function mask() { return "2519******" + pad(rnd(100)); }
+
+    /** Crowded duplicate low amounts, then the first unique amount (≥ 4) wins; sorted ascending. */
+    function makeGroups(total) {
+      total = Math.max(total, 12);
+      var groups = [], used = 0, winAt = 4 + rnd(4), amount = 1;
+      for (; amount < winAt; amount++) { var c = 2 + rnd(4); groups.push({ amount: amount, n: c }); used += c; }
+      groups.push({ amount: winAt, n: 1, winner: true }); used += 1;
+      amount = winAt + 1;
+      while (used < total) {
+        var n = Math.min(total - used, Math.random() < 0.45 ? 1 : 2 + rnd(3));
+        groups.push({ amount: amount, n: n }); used += n;
+        amount += 1 + rnd(3);
+      }
+      return groups.map(function (g) {
+        var bidders = [];
+        for (var i = 0; i < Math.min(g.n, 3); i++) bidders.push({ maskedBidder: mask(), isWinner: !!g.winner && i === 0 });
+        return { amount: g.amount, occurrenceCount: g.n, isUnique: g.n === 1, containsWinner: !!g.winner, biddersPreview: bidders, totalBidders: g.n, hasMoreBidders: g.n > 3 };
+      });
+    }
+
+    function close(a) {
+      if (!isLive(a)) return;
+      a.status = "Ended";
+      emit("auctionClosed", { auctionId: a.id, closedAt: new Date().toISOString() });
+    }
+    function finalize(a) {
+      if (statusIs(a, "finalized")) return;
+      a.status = "Finalized"; a.outcome = "Won";
+      a.groups = makeGroups(a.activeBidCount);
+      var g = a.groups.find(function (x) { return x.containsWinner; });
+      a.winner = { bidId: 1000 + a.id, amount: g.amount, maskedBidder: g.biddersPreview[0].maskedBidder };
+      emit("auctionFinalized", { auctionId: a.id, outcome: a.outcome, winningAmount: g.amount });
+    }
+    function addBids(a, n) {
+      if (!isLive(a)) return;
+      a.activeBidCount += n;
+      emit("bidCountChanged", { auctionId: a.id, activeBidCount: a.activeBidCount });
+      if (a.targetBidCount && a.activeBidCount >= a.targetBidCount) {
+        close(a);
+        setTimeout(function () { finalize(a); }, 6000);
+      }
+    }
+    function tick() {
+      var liveOnes = auctions.filter(isLive);
+      if (liveOnes.length) addBids(liveOnes[rnd(liveOnes.length)], Math.random() < 0.2 ? 2 : 1);
+      timer = setTimeout(tick, 2000 + rnd(3000));
+    }
+
+    function later(v) { return new Promise(function (r) { setTimeout(function () { r(v); }, 120); }); }
+    function notFound() { return Promise.reject(new HttpError(404, "Auction not found.")); }
+
+    return {
+      subscribe: function () { if (!timer) timer = setTimeout(tick, 2000 + rnd(3000)); },
+      listAuctions: function () { return later(auctions.filter(isLive).map(clone)); },
+      getAuction: function (id) { var a = find(id); return a ? later(clone(a)) : notFound(); },
+      getResult: function (id) { var a = find(id); return a ? later({ outcome: a.outcome, winner: a.winner, bidsRevealed: !!a.groups }) : notFound(); },
+      getBidGroups: function (id) {
+        var a = find(id);
+        if (!a) return notFound();
+        // The real API answers 403 until finalization; the demo finalizes on the spot so the reveal can be rehearsed.
+        if (!a.groups) { close(a); finalize(a); }
+        return later({ items: a.groups.slice(), totalCount: a.groups.length });
+      },
+      addBid: function (id) { var a = find(id); if (a) addBids(a, 1); },
+      forceFinish: function (id) { var a = find(id); if (!a) return; close(a); setTimeout(function () { finalize(a); }, 3000); },
+      makeGroups: makeGroups
+    };
+  })();
+
+  var source = demo ? demoServer : rest;
+
+  window.Golow = {
+    config: cfg, demo: demo, key: key, role: role, isPreview: role === "preview",
+    lsGet: lsGet, lsSet: lsSet,
+    listAuctions: source.listAuctions, getAuction: source.getAuction, getResult: source.getResult, getBidGroups: source.getBidGroups,
+    live: live, demoServer: demoServer,
+    util: { esc: esc, money: money, fmtCountdown: fmtCountdown, isLive: isLive, statusIs: statusIs, now: now, noteServerTime: noteServerTime, AlertQueue: AlertQueue, RateWindow: RateWindow, revealStep: revealStep },
+    HttpError: HttpError
+  };
+  if (!demo) start();
+})();
