@@ -14,6 +14,7 @@ window.GolowText = {
   cancelled: { am: "ጨረታው ተሰርዟል", en: "Auction cancelled" },
   go: { am: "ተጫረቱ!", en: "Bid now!" },
   pickAuction: "Pick an auction in the control panel",
+  ctaDefault: "አሁኑኑ ይጫረቱ! | Bid now on golow.et",
   // New GOLOW users (name = first name + last initial, from the server).
   welcome: function (name) { return { am: "👋 እንኳን ደህና መጡ" + (name ? "፣ " + name : "") + "!", en: name ? "Welcome to GOLOW!" : "A new member joined GOLOW!" }; },
   welcomeMany: function (n) { return { am: "👋 እንኳን ደህና መጣችሁ! +" + n, en: n + " new members joined GOLOW!" }; },

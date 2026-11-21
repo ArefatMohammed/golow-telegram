@@ -5,7 +5,6 @@
   var esc = U.esc;
   var $ = function (id) { return document.getElementById(id); };
   var params = new URLSearchParams(location.search);
-  if (params.get("preview") === "1") document.body.classList.add("checker");
 
   var state = { id: null, a: null, count: 0, target: null, done: false, mute: false, cardOn: true };
   var rate = new U.RateWindow(60000);
@@ -48,6 +47,7 @@
     var running = U.isLive(a) && !state.done;
     var text = running ? U.fmtCountdown(remaining) : null;
     $("timer").textContent = text || T.done;
+    $("card").querySelector(".live").classList.toggle("hidden", !running);
     // "Almost": 1–10 bids left (break-even), or the last 5 minutes (time-based).
     var left = leftCount();
     var almost = running && (state.target ? left >= 1 && left <= 10 : remaining > 0 && remaining <= 300000);
@@ -131,14 +131,31 @@
     timers.message = setTimeout(function () { hide("message"); }, (seconds || 10) * 1000);
   }
 
-  function showCta(on, text, seconds) {
+  var cta = { on: false, text: "", qr: false };
+
+  function showCta(on, text, seconds, qr) {
     hide("cta");
+    cta = { on: on, text: text, qr: !!qr };
     if (!on) return;
+    renderCta();
+    if (seconds) timers.cta = setTimeout(function () { hide("cta"); cta.on = false; }, seconds * 1000);
+  }
+
+  function renderCta() {
+    var box = $("cta");
     // "Amharic | English" (or two lines). Escaped here, never trusted as HTML.
-    var parts = String(text || "አሁኑኑ ይጫረቱ! | Bid now on golow.et").split(/\s*\|\s*|\n/);
-    $("cta").innerHTML = linesHtml(parts.join("\n"));
-    $("cta").classList.remove("hidden");
-    if (seconds) timers.cta = setTimeout(function () { hide("cta"); }, seconds * 1000);
+    var parts = String(cta.text || T.ctaDefault).split(/\s*\|\s*|\n/);
+    var html = '<div class="txt">' + linesHtml(parts.join("\n")) + "</div>";
+    var bot = (G.config && G.config.botUsername) || "";
+    var withQr = cta.qr && state.id && bot;
+    if (withQr) {
+      // Scan → the GOLOW bot in Telegram → the Mini App opens on this auction.
+      var src = "qr.svg?auction=" + state.id + (G.key ? "&key=" + encodeURIComponent(G.key) : "");
+      html = '<div class="qr"><img alt="" src="' + esc(src) + '"><small>t.me/' + esc(bot) + "</small></div>" + html;
+    }
+    box.innerHTML = html;
+    box.classList.toggle("has-qr", !!withQr);
+    box.classList.remove("hidden");
   }
 
   function hype(seconds) {
@@ -196,6 +213,7 @@
     }
     G.live.joinAuction(id);
     refetch(true);
+    if (cta.on) renderCta();
   }
 
   function refetch(initial) {
@@ -273,7 +291,7 @@
   // ---------- panel commands ----------
   Bus.on("switch", function (d) { var id = Number(d.auctionId) || null; G.lsSet("golow.onair", id); load(id); });
   Bus.on("rules", function (d) { showRules(!!d.show, d.seconds); });
-  Bus.on("cta", function (d) { showCta(!!d.show, d.text, d.seconds); });
+  Bus.on("cta", function (d) { showCta(!!d.show, d.text, d.seconds, d.qr); });
   Bus.on("message", function (d) { showMessage(d.text, d.seconds); });
   Bus.on("card", function (d) { state.cardOn = !!d.show; renderCard(); heartbeat(); });
   Bus.on("hype", function (d) { hype(d.seconds); });

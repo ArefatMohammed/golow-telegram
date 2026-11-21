@@ -15,7 +15,7 @@ import time
 from collections import deque
 from pathlib import Path
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from ..api import GolowApi, Tokens
 from ..config import Settings
 from .feed import NewUserFeed
+from .qr import qr_svg
 from .tokens import sign, verify
 
 log = logging.getLogger(__name__)
@@ -85,13 +86,41 @@ def scene_key_ok(request: Request) -> bool:
     return bool(key) and verify(_secret(settings), key, "scene") is not None
 
 
+def content_security_policy(settings: Settings) -> str:
+    """Only this site's own scripts (plus the pinned SignalR client) run on studio pages. Connections: this site,
+    the GOLOW API's hub, and OBS's WebSocket server on the host's own computer."""
+    api = settings.golow_api_origin
+    hub = api.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
+    return "; ".join([
+        "default-src 'self'",
+        "script-src 'self' https://cdn.jsdelivr.net",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' https: data:",
+        f"connect-src 'self' {api} {hub} ws://127.0.0.1:* ws://localhost:*",
+        "media-src 'self'",
+        "frame-src 'self'",
+        "frame-ancestors 'self'",
+        "base-uri 'none'",
+        "form-action 'self'",
+        "object-src 'none'",
+    ])
+
+
 def build_router(settings: Settings, api: GolowApi, feed: NewUserFeed) -> APIRouter:
     router = APIRouter(prefix="/studio")
     attempts = _Attempts()
+    csp = content_security_policy(settings)
+    security_headers = {
+        "Cache-Control": "no-store",  # a new deploy must reach OBS without anyone clearing its cache
+        "Content-Security-Policy": csp,
+        "X-Frame-Options": "SAMEORIGIN",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "same-origin",
+    }
 
     def page(name: str) -> FileResponse:
-        # No caching: a new deploy must reach OBS without anyone clearing its cache.
-        return FileResponse(STATIC / name, headers={"Cache-Control": "no-store", "X-Frame-Options": "SAMEORIGIN"})
+        return FileResponse(STATIC / name, headers=security_headers)
 
     @router.get("", include_in_schema=False)
     async def root_redirect() -> RedirectResponse:
@@ -176,10 +205,24 @@ def build_router(settings: Settings, api: GolowApi, feed: NewUserFeed) -> APIRou
         config = {
             "hubUrl": settings.golow_api_origin + "/hubs/auctions",
             "apiHost": settings.golow_api_origin.split("://", 1)[-1],
+            "environment": settings.environment,
+            "botUsername": settings.bot_username,
+            "websiteUrl": settings.website_url,
             "user": {"name": session.get("name")} if session else None,
         }
         body = "window.GOLOW_STUDIO = " + json.dumps(config).replace("<", "\\u003c") + ";\n"
         return Response(body, media_type="application/javascript", headers={"Cache-Control": "no-store"})
+
+    @router.get("/qr.svg")
+    async def qr(request: Request, auction: int = Query(gt=0, lt=10**9)) -> Response:
+        """QR code for the bid-now banner: opens this auction in the GOLOW bot (t.me/<bot>?start=auction_<id>),
+        which hands the viewer the Mini App on that auction."""
+        if session_of(request) is None and not scene_key_ok(request):
+            return Response(status_code=401)
+        if not settings.bot_username:
+            raise HTTPException(status_code=404)
+        svg = qr_svg(f"https://t.me/{settings.bot_username}?start=auction_{auction}")
+        return Response(svg, media_type="image/svg+xml", headers={"Cache-Control": "private, max-age=3600"})
 
     @router.get("/feed/welcome")
     async def welcome_feed(request: Request, after: int = -1) -> JSONResponse:

@@ -92,7 +92,6 @@
   var rest = {
     listAuctions: function () { return get("auctions?status=Active&pageSize=50").then(function (d) { return (d && d.items) || []; }); },
     getAuction: function (id) { return get("auctions/" + Number(id)); },
-    getResult: function (id) { return get("auctions/" + Number(id) + "/result"); },
     /** All bid groups, lowest amount first (up to 5 pages of 100). 403 until the auction is finalized. */
     getBidGroups: function (id) {
       var items = [], total = 0;
@@ -149,7 +148,7 @@
         conn = new signalR.HubConnectionBuilder()
           .withUrl(cfg.hubUrl, { skipNegotiation: true, transport: signalR.HttpTransportType.WebSockets })
           .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
-          .configureLogging(signalR.LogLevel.Warning)
+          .configureLogging(signalR.LogLevel.None) // we report hub problems ourselves (status: polling)
           .build();
         EVENTS.forEach(function (ev) { conn.on(ev, function (p) { dispatch(ev, p); }); });
         conn.onreconnecting(function () { setStatus("polling"); });
@@ -196,7 +195,7 @@
       return fetch("feed/welcome?after=" + Number(after), { headers: key ? { "X-Studio-Key": key } : {}, credentials: "same-origin", cache: "no-store" })
         .then(function (r) { if (!r.ok) throw new HttpError(r.status, "HTTP " + r.status); return r.json(); });
     },
-    listAuctions: rest.listAuctions, getAuction: rest.getAuction, getResult: rest.getResult, getBidGroups: rest.getBidGroups,
+    listAuctions: rest.listAuctions, getAuction: rest.getAuction, getBidGroups: rest.getBidGroups,
     live: live,
     util: { esc: esc, money: money, fmtCountdown: fmtCountdown, isLive: isLive, isFinished: isFinished, isCancelled: isCancelled, statusIs: statusIs, now: now, noteServerTime: noteServerTime, AlertQueue: AlertQueue, RateWindow: RateWindow, revealStep: revealStep },
     HttpError: HttpError

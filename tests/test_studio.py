@@ -138,7 +138,7 @@ def test_proxy_forwards_only_public_gets(studio_settings, bot):
 
 
 def test_studio_host_serves_only_the_studio(studio_settings, bot):
-    with make_client(studio_settings, bot, host="live.golow.et") as c:
+    with make_client(studio_settings, bot, host=studio_settings.studio_host) as c:
         r = c.get("/", follow_redirects=False)
         assert r.status_code == 303 and r.headers["location"] == "login"
         assert c.get("/login").status_code == 200
@@ -149,3 +149,25 @@ def test_studio_host_serves_only_the_studio(studio_settings, bot):
         assert c.get("/health").status_code == 404
     with make_client(studio_settings, bot) as c:  # other hosts are unchanged
         assert c.get("/health").status_code == 200
+
+
+def test_pages_send_a_strict_content_security_policy(studio_settings, bot):
+    with make_client(studio_settings, bot) as c:
+        r = c.get("/studio/login")
+    csp = r.headers["content-security-policy"]
+    assert "script-src 'self' https://cdn.jsdelivr.net;" in csp and "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]
+    assert "wss://api.test" in csp and "ws://127.0.0.1:*" in csp and "frame-ancestors 'self'" in csp
+    for page in ("index", "login", "overlay", "board", "reveal"):
+        html = (__import__("golow_telegram.studio", fromlist=["STATIC"]).STATIC / f"{page}.html").read_text()
+        assert "<script>" not in html and " onerror=" not in html and " onclick=" not in html, page
+
+
+def test_qr_code_opens_the_auction_in_the_bot(studio_settings, bot):
+    key = sign(SECRET.encode(), "scene", {"uid": 1}, 600)
+    with make_client(studio_settings, bot) as c:
+        assert c.get("/studio/qr.svg?auction=14").status_code == 401
+        assert c.get(f"/studio/qr.svg?auction=0&key={key}").status_code == 422
+        r = c.get(f"/studio/qr.svg?auction=14&key={key}")
+        assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml") and b"<svg" in r.content
+        js = c.get(f"/studio/config.js?key={key}").text
+    assert '"environment": "dev"' in js and '"botUsername": "GolowBidDevBot"' in js

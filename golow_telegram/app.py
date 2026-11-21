@@ -59,6 +59,8 @@ class _SeenUpdates:
 
 
 def create_app(settings: Settings | None = None, bot: Bot | None = None, api: GolowApi | None = None) -> FastAPI:
+    if not logging.getLogger().handlers:  # under uvicorn, make this service's own log lines visible too
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     settings = settings or get_settings()
     bot = bot or Bot(settings.bot_token.get_secret_value(), default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     api = api or GolowApi(settings.golow_api_url, settings.internal_key.get_secret_value())
@@ -68,6 +70,11 @@ def create_app(settings: Settings | None = None, bot: Bot | None = None, api: Go
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        log.info(
+            "GolowBidBot (%s): API %s, Mini App %s, studio %s",
+            settings.environment, settings.golow_api_url, settings.miniapp_url,
+            f"on {settings.studio_host}" if settings.studio_secret else "off",
+        )
         if settings.setup_bot_profile:
             await setup_bot_profile(bot, settings)
         polling: asyncio.Task | None = None
