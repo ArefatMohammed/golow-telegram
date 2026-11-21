@@ -156,7 +156,7 @@ def test_pages_send_a_strict_content_security_policy(studio_settings, bot):
         r = c.get("/studio/login")
     csp = r.headers["content-security-policy"]
     assert "script-src 'self' https://cdn.jsdelivr.net;" in csp and "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]
-    assert "wss://api.test" in csp and "ws://127.0.0.1:*" in csp and "frame-ancestors 'self'" in csp
+    assert "wss://api-dev.golow.et" in csp and "https://api-dev.golow.et" in csp and "ws://127.0.0.1:*" in csp and "frame-ancestors 'self'" in csp
     for page in ("index", "login", "overlay", "board", "reveal"):
         html = (__import__("golow_telegram.studio", fromlist=["STATIC"]).STATIC / f"{page}.html").read_text()
         assert "<script>" not in html and " onerror=" not in html and " onclick=" not in html, page

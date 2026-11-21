@@ -19,6 +19,7 @@ Environment = Literal["dev", "prod"]
 PRESETS: dict[str, dict[str, str]] = {
     "dev": {
         "golow_api_url": "https://api-dev.golow.et/api/v1",
+        "public_api_url": "https://api-dev.golow.et",
         "miniapp_url": "https://dev.golow.et/tg",
         "website_url": "https://dev.golow.et",
         "bot_username": "GolowBidDevBot",
@@ -26,6 +27,7 @@ PRESETS: dict[str, dict[str, str]] = {
     },
     "prod": {
         "golow_api_url": "https://api.golow.et/api/v1",
+        "public_api_url": "https://api.golow.et",
         "miniapp_url": "https://golow.et/tg",
         "website_url": "https://golow.et",
         "bot_username": "GolowBidBot",
@@ -46,8 +48,11 @@ class Settings(BaseSettings):
     internal_key: SecretStr
 
     # Preset per environment unless set explicitly.
-    #: GOLOW backend API, including /api/v1.
+    #: GOLOW backend API, including /api/v1, as this service reaches it (may be an internal Docker address such as
+    #: http://wagago-prod-backend:8080/api/v1).
     golow_api_url: str = ""
+    #: The same API as browsers reach it (no /api/v1): the studio pages connect to its live-events hub.
+    public_api_url: str = ""
     #: The Mini App the "Open GOLOW" buttons launch.
     miniapp_url: str = ""
     #: The public website (shown on stream).
@@ -105,6 +110,7 @@ class Settings(BaseSettings):
             if not getattr(self, name):
                 setattr(self, name, value)
         self.golow_api_url = self.golow_api_url.rstrip("/")
+        self.public_api_url = self.public_api_url.rstrip("/")
         self.miniapp_url = self.miniapp_url.rstrip("/")
         self.website_url = self.website_url.rstrip("/")
         self.bot_username = self.bot_username.lstrip("@")
@@ -113,13 +119,14 @@ class Settings(BaseSettings):
         other = "dev" if self.environment == "prod" else "prod"
         if self.golow_api_url == PRESETS[other]["golow_api_url"]:
             raise ValueError(f"ENVIRONMENT={self.environment} but GOLOW_API_URL is the {other} API ({self.golow_api_url})")
+        if self.public_api_url == PRESETS[other]["public_api_url"]:
+            raise ValueError(f"ENVIRONMENT={self.environment} but PUBLIC_API_URL is the {other} API ({self.public_api_url})")
         return self
 
     @property
     def golow_api_origin(self) -> str:
-        """The API's origin without /api/v1, e.g. https://api-dev.golow.et (the SignalR hub lives there)."""
-        url = self.golow_api_url
-        return url[: -len("/api/v1")] if url.endswith("/api/v1") else url
+        """The public API origin browsers use, e.g. https://api-dev.golow.et (the SignalR hub lives there)."""
+        return self.public_api_url
 
 
 @lru_cache

@@ -36,3 +36,11 @@ def test_prod_refuses_the_dev_api_and_dev_refuses_the_prod_api():
 def test_unknown_environment_is_rejected():
     with pytest.raises(ValidationError):
         Settings(**BASE, environment="staging")
+
+
+def test_internal_api_address_keeps_the_public_one_for_browsers():
+    s = Settings(**BASE, environment="prod", golow_api_url="http://wagago-prod-backend:8080/api/v1")
+    assert s.golow_api_url == "http://wagago-prod-backend:8080/api/v1"
+    assert s.golow_api_origin == "https://api.golow.et"  # the studio's hub and CSP use this
+    with pytest.raises(ValidationError, match="PUBLIC_API_URL"):
+        Settings(**BASE, environment="prod", public_api_url="https://api-dev.golow.et")
