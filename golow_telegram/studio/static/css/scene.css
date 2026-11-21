@@ -63,6 +63,8 @@ body.checker { background: repeating-conic-gradient(#2a2a33 0 25%, #1c1c22 0 50%
 .toast.red { background: var(--danger); color: #fff; }
 .toast.red .en { color: rgba(255, 255, 255, .85); }
 .toast.green { background: var(--success); color: #fff; }
+.toast.blue { background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; }
+.toast.blue .en { color: rgba(255, 255, 255, .85); }
 
 /* ---------- bid-now banner ---------- */
 .cta { position: absolute; left: var(--safe-left); right: var(--safe-right); bottom: calc(var(--safe-bottom) + 16px); padding: 18px 28px; border-radius: 26px; background: var(--brand); color: var(--ink); text-align: center; font-size: 46px; font-weight: 900; animation: gentle 2.4s ease-in-out infinite; }

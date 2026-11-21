@@ -285,12 +285,41 @@
   Bus.on("winner", function (d) { showWinner(d.show !== false); });
   Bus.on("ping", function () { heartbeat(); });
 
+  // ---------- welcome new users ----------
+  var welcome = { on: G.lsGet("golow.welcome") !== "0", after: -1, queue: [], showing: false, status: null };
+
+  function pollWelcome() {
+    G.getWelcome(welcome.after).then(function (d) {
+      welcome.after = d.seq; welcome.status = d.status;
+      if (welcome.on) welcome.queue = welcome.queue.concat(d.events || []);
+      nextWelcome();
+    }).catch(function () { /* the next poll retries */ });
+  }
+
+  function nextWelcome() {
+    if (welcome.showing || !welcome.queue.length || !welcome.on) return;
+    // A burst of sign-ups becomes one popup, so the stream never falls behind.
+    var batch = welcome.queue.length > 3 ? welcome.queue.splice(0) : [welcome.queue.shift()];
+    var text = batch.length > 1 ? T.welcomeMany(batch.length) : T.welcome(batch[0].name);
+    welcome.showing = true;
+    Fx.toast($("toasts"), text, { long: true, color: "blue" });
+    Sound.play("rules", "Welcome to GOLOW!");
+    log("welcome", batch.length > 1 ? "Welcomed " + batch.length + " new members" : "Welcomed " + (batch[0].name || "a new member") + " (" + batch[0].source + ")");
+    setTimeout(function () { welcome.showing = false; nextWelcome(); }, 4500);
+  }
+
+  setInterval(pollWelcome, 5000);
+  pollWelcome();
+  Bus.on("welcome", function (d) { welcome.on = !!d.on; G.lsSet("golow.welcome", welcome.on ? null : "0"); if (!welcome.on) welcome.queue = []; heartbeat(); });
+  Bus.on("testwelcome", function () { if (!welcome.on) return; welcome.queue.push({ name: "Abebe K.", source: "test" }); nextWelcome(); });
+
   // ---------- heartbeat ----------
   function heartbeat() {
     var a = state.a;
     Bus.send("state", {
       auctionId: state.id, title: a ? a.title : null, count: state.count, target: state.target,
-      status: a ? a.status : null, endsAt: a ? a.endsAt : null, rate: rate.count(), done: state.done, cardOn: state.cardOn
+      status: a ? a.status : null, endsAt: a ? a.endsAt : null, rate: rate.count(), done: state.done, cardOn: state.cardOn,
+      welcomeOn: welcome.on, welcomeStatus: welcome.status
     });
   }
   setInterval(heartbeat, 3000);

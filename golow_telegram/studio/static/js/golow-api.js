@@ -191,6 +191,11 @@
   window.Golow = {
     config: cfg, key: key, role: role, isPreview: role === "preview",
     lsGet: lsGet, lsSet: lsSet,
+    /** New GOLOW users since `after` (-1: just the current position): { seq, status, events: [{ name, source }] }. */
+    getWelcome: function (after) {
+      return fetch("feed/welcome?after=" + Number(after), { headers: key ? { "X-Studio-Key": key } : {}, credentials: "same-origin", cache: "no-store" })
+        .then(function (r) { if (!r.ok) throw new HttpError(r.status, "HTTP " + r.status); return r.json(); });
+    },
     listAuctions: rest.listAuctions, getAuction: rest.getAuction, getResult: rest.getResult, getBidGroups: rest.getBidGroups,
     live: live,
     util: { esc: esc, money: money, fmtCountdown: fmtCountdown, isLive: isLive, isFinished: isFinished, isCancelled: isCancelled, statusIs: statusIs, now: now, noteServerTime: noteServerTime, AlertQueue: AlertQueue, RateWindow: RateWindow, revealStep: revealStep },

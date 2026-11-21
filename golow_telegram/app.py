@@ -17,16 +17,18 @@ from . import notify, studio
 from .api import GolowApi
 from .config import Settings, get_settings
 from .handlers import build_router
+from .studio.feed import NewUserFeed
 
 log = logging.getLogger(__name__)
 
 
-def build_dispatcher(settings: Settings, api: GolowApi) -> Dispatcher:
+def build_dispatcher(settings: Settings, api: GolowApi, welcome_feed: NewUserFeed | None = None) -> Dispatcher:
     dp = Dispatcher()
     dp.include_router(build_router())
     # Injected into handlers by parameter name.
     dp["settings"] = settings
     dp["api"] = api
+    dp["welcome_feed"] = welcome_feed
     return dp
 
 
@@ -60,7 +62,8 @@ def create_app(settings: Settings | None = None, bot: Bot | None = None, api: Go
     settings = settings or get_settings()
     bot = bot or Bot(settings.bot_token.get_secret_value(), default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     api = api or GolowApi(settings.golow_api_url, settings.internal_key.get_secret_value())
-    dp = build_dispatcher(settings, api)
+    welcome_feed = NewUserFeed(api) if settings.studio_secret is not None else None
+    dp = build_dispatcher(settings, api, welcome_feed)
     seen = _SeenUpdates()
 
     @asynccontextmanager
@@ -97,7 +100,7 @@ def create_app(settings: Settings | None = None, bot: Bot | None = None, api: Go
     app.state.dp = dp
     app.include_router(notify.router)
     if settings.studio_secret is not None:
-        studio.mount(app, settings, api)
+        studio.mount(app, settings, api, welcome_feed)
 
     @app.post("/telegram/webhook")
     async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str | None = Header(default=None)) -> dict:

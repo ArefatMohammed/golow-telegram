@@ -35,7 +35,7 @@ async def on_help(message: Message, settings: Settings) -> None:
     await message.answer(TEXTS[lang]["help"], reply_markup=keyboards.open_app(settings.miniapp_url, lang))
 
 
-async def on_contact(message: Message, api: GolowApi, settings: Settings) -> None:
+async def on_contact(message: Message, api: GolowApi, settings: Settings, welcome_feed=None) -> None:
     """Links the GOLOW account. Only the sender's own number is accepted: Telegram sets contact.user_id when the
     contact is the user's own (request_contact), so a forwarded or typed contact is refused."""
     user = message.from_user
@@ -48,6 +48,11 @@ async def on_contact(message: Message, api: GolowApi, settings: Settings) -> Non
 
     result = await api.link(user.id, contact.phone_number, user.first_name, user.last_name, user.username, user.language_code)
     reply = TEXTS[lang][_LINK_REPLY[result.outcome]]
+    if result.outcome == "CreatedAccount" and welcome_feed is not None:
+        # A brand-new GOLOW account: welcome it on the live stream (first name + last initial only).
+        from .studio.feed import display_name
+
+        welcome_feed.push(result.user_id, display_name(user.first_name, user.last_name), "telegram")
     if result.outcome in ("LinkedExisting", "CreatedAccount", "AlreadyLinked"):
         await message.answer(reply, reply_markup=ReplyKeyboardRemove())
         await message.answer(TEXTS[lang]["help"], reply_markup=keyboards.open_app(settings.miniapp_url, lang))

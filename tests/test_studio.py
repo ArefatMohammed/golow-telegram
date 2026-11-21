@@ -60,7 +60,7 @@ def test_pages_need_a_session(studio_settings, bot):
 
 
 @respx.mock
-def test_admin_login_sets_session_and_revokes_backend_tokens(studio_settings, bot):
+def test_admin_login_sets_session_and_sign_out_revokes_backend_tokens(studio_settings, bot):
     logout = login_routes()
     with make_client(studio_settings, bot) as c:
         r = c.post("/studio/auth/login", json={"phone": "0911000000", "password": "pw"})
@@ -71,7 +71,9 @@ def test_admin_login_sets_session_and_revokes_backend_tokens(studio_settings, bo
         assert c.get("/studio/").status_code == 200
         assert c.get("/studio/auth/me").json()["name"] == "Hana"
         assert "Hana" in c.get("/studio/config.js").text
-    assert logout.called
+        assert not logout.called  # kept server-side for the new-user feed
+        c.post("/studio/auth/logout")
+    assert logout.called  # signing out revokes the GOLOW session
     assert logout.calls[0].request.headers["authorization"] == "Bearer acc"
     sent = respx.calls[0].request
     assert sent.url.path == "/api/v1/auth/login" and "x-internal-key" not in sent.headers

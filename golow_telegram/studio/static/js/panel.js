@@ -8,7 +8,7 @@
 
   var auctions = [], onair = Number(G.lsGet("golow.onair")) || null;
   var lastState = null, lastBeat = 0, sceneKey = null, pvScene = "overlay";
-  var toggles = { rules: false, cta: false, card: true, mute: false };
+  var toggles = { rules: false, cta: false, card: true, mute: false, welcome: G.lsGet("golow.welcome") !== "0" };
 
   // ---------- header ----------
   var cfg = G.config || {};
@@ -128,7 +128,9 @@
     $("oaTitle").textContent = (onair ? "🔴 " : "") + (title || "—");
     $("oaStats").innerHTML = "<span><b>" + esc(target ? count + " / " + target : count) + "</b> bids</span>" +
       (beat ? "<span><b>" + esc(beat.rate) + "</b> bids/min</span>" : "") + "<span>" + esc(status || "") + "</span>" +
-      (beat && beat.cardOn === false ? "<span>card hidden</span>" : "");
+      (beat && beat.cardOn === false ? "<span>card hidden</span>" : "") +
+      (beat && beat.welcomeOn && beat.welcomeStatus && beat.welcomeStatus !== "ok"
+        ? '<span title="Website sign-ups need an admin GOLOW session on the server">Welcomes: Telegram only — sign in again</span>' : "");
     $("oaBar").className = "bar" + (target ? "" : " tb");
     $("oaBar").firstChild.style.width = (target ? Math.min(100, (count / target) * 100) : 100).toFixed(1) + "%";
     $("oaNote").textContent = beat ? "" : onair ? "Overlay not connected yet" : "Pick an auction";
@@ -155,6 +157,13 @@
     Bus.send("mutebids", { on: toggles.mute }); log("show", "Bid alerts " + (toggles.mute ? "muted" : "on"));
   });
   $("bTest").addEventListener("click", function () { Bus.send("testbid", {}); log("show", "Test bid alert"); });
+  setOn("tWelcome", toggles.welcome);
+  $("tWelcome").addEventListener("click", function () {
+    toggles.welcome = !toggles.welcome; setOn("tWelcome", toggles.welcome);
+    G.lsSet("golow.welcome", toggles.welcome ? null : "0");
+    Bus.send("welcome", { on: toggles.welcome }); log("show", "Welcome popups " + (toggles.welcome ? "on" : "off"));
+  });
+  $("bTestWelcome").addEventListener("click", function () { Bus.send("testwelcome", {}); log("show", "Test welcome"); });
 
   function flash(text, seconds) {
     if (!text.trim()) return;

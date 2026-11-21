@@ -1,7 +1,8 @@
 """GOLOW Live Studio: the OBS control panel and scenes for TikTok Live, served at live.golow.et.
 
 * Admins sign in with their GOLOW admin platform credentials (phone + password). The backend checks them and
-  confirms an active admin; the studio then keeps its own signed session cookie and stores no GOLOW tokens.
+  confirms an active admin; the browser gets only the studio's own signed session cookie. The latest admin's
+  GOLOW tokens stay in this server's memory for the new-user feed (see feed.py) until they sign out.
 * OBS Browser Sources can't sign in, so the panel mints signed, expiring scene links (``?key=…``).
 * Auction data comes through a read-only proxy of four public GET endpoints (no CORS setup needed on the API).
   Live events come straight from the API's anonymous SignalR hub.
@@ -19,8 +20,9 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from ..api import GolowApi
+from ..api import GolowApi, Tokens
 from ..config import Settings
+from .feed import NewUserFeed
 from .tokens import sign, verify
 
 log = logging.getLogger(__name__)
@@ -83,7 +85,7 @@ def scene_key_ok(request: Request) -> bool:
     return bool(key) and verify(_secret(settings), key, "scene") is not None
 
 
-def build_router(settings: Settings, api: GolowApi) -> APIRouter:
+def build_router(settings: Settings, api: GolowApi, feed: NewUserFeed) -> APIRouter:
     router = APIRouter(prefix="/studio")
     attempts = _Attempts()
 
@@ -133,6 +135,8 @@ def build_router(settings: Settings, api: GolowApi) -> APIRouter:
         if result.outcome != "ok":
             return JSONResponse({"error": "Couldn't reach GOLOW. Try again in a moment."}, status_code=502)
         log.info("Studio sign-in by admin %s.", result.user_id)
+        # The admin's GOLOW tokens stay on this server (memory only) for the new-user feed.
+        await feed.use_admin(result.user_id, Tokens(result.access_token or "", result.refresh_token or ""))
         ttl = settings.studio_session_hours * 3600
         token = sign(_secret(settings), "session", {"uid": result.user_id, "name": result.name or "Admin"}, ttl)
         response = JSONResponse({"ok": True, "name": result.name})
@@ -140,7 +144,10 @@ def build_router(settings: Settings, api: GolowApi) -> APIRouter:
         return response
 
     @router.post("/auth/logout")
-    async def logout() -> JSONResponse:
+    async def logout(request: Request) -> JSONResponse:
+        session = session_of(request)
+        if session is not None:
+            await feed.drop_admin(session.get("uid"))
         response = JSONResponse({"ok": True})
         response.delete_cookie(COOKIE, path="/", httponly=True, secure=settings.studio_cookie_secure, samesite="strict")
         return response
@@ -171,6 +178,18 @@ def build_router(settings: Settings, api: GolowApi) -> APIRouter:
         }
         body = "window.GOLOW_STUDIO = " + json.dumps(config).replace("<", "\\u003c") + ";\n"
         return Response(body, media_type="application/javascript", headers={"Cache-Control": "no-store"})
+
+    @router.get("/feed/welcome")
+    async def welcome_feed(request: Request, after: int = -1) -> JSONResponse:
+        """New GOLOW users for the overlay's welcome popup: display names only."""
+        if session_of(request) is None and not scene_key_ok(request):
+            return JSONResponse({"error": "Signed out."}, status_code=401)
+        await feed.maybe_poll()
+        seq, events = feed.since(after)
+        return JSONResponse(
+            {"seq": seq, "status": feed.status, "events": [{"seq": e.seq, "name": e.name, "source": e.source} for e in events]},
+            headers={"Cache-Control": "no-store"},
+        )
 
     @router.get("/api/{path:path}")
     async def proxy(path: str, request: Request) -> Response:
@@ -208,8 +227,8 @@ class StudioHostMiddleware:
         await self.app(scope, receive, send)
 
 
-def mount(app: FastAPI, settings: Settings, api: GolowApi) -> None:
-    app.include_router(build_router(settings, api))
+def mount(app: FastAPI, settings: Settings, api: GolowApi, feed: NewUserFeed) -> None:
+    app.include_router(build_router(settings, api, feed))
     for folder in ("js", "css", "sounds"):
         (STATIC / folder).mkdir(exist_ok=True)
         app.mount(f"/studio/{folder}", StaticFiles(directory=STATIC / folder), name=f"studio-{folder}")

@@ -1,7 +1,7 @@
 """Client for the GOLOW backend's internal Telegram endpoints."""
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import httpx
@@ -19,6 +19,14 @@ class AdminLogin:
     outcome: AdminLoginOutcome
     user_id: int | None = None
     name: str | None = None
+    access_token: str | None = field(default=None, repr=False)
+    refresh_token: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
+class Tokens:
+    access_token: str = field(repr=False)
+    refresh_token: str = field(repr=False)
 
 
 @dataclass(frozen=True)
@@ -76,8 +84,8 @@ class GolowApi:
 
     async def admin_login(self, phone: str, password: str) -> AdminLogin:
         """Signs in with the admin platform's credentials (POST /auth/login) and confirms the account is an active
-        admin by calling an admin-only endpoint, which applies the backend's own Admin policy. The backend session
-        is revoked right after: the studio keeps its own session and never stores GOLOW tokens."""
+        admin by calling an admin-only endpoint, which applies the backend's own Admin policy. The tokens are
+        returned to the caller (the studio keeps them server-side for the new-user feed) and revoked otherwise."""
         try:
             response = await self._client.post("/auth/login", json={"phone": phone, "password": password})
         except httpx.TransportError as exc:
@@ -100,11 +108,8 @@ class GolowApi:
         except httpx.TransportError as exc:
             log.warning("GOLOW API admin check failed: %s", exc)
             check = None
-        finally:
-            try:
-                await self._client.post("/auth/logout", json={"refreshToken": refresh}, headers=auth)
-            except httpx.TransportError:
-                pass
+        if check is None or check.status_code != 200 or not refresh:
+            await self.revoke(Tokens(access, refresh or ""))
         if check is None:
             return AdminLogin("error")
         if check.status_code in (401, 403):
@@ -112,7 +117,33 @@ class GolowApi:
         if check.status_code != 200:
             log.error("Studio admin check failed: HTTP %s", check.status_code)
             return AdminLogin("error")
-        return AdminLogin("ok", data.get("userId"), data.get("fullName"))
+        return AdminLogin("ok", data.get("userId"), data.get("fullName"), access, refresh)
+
+    async def refresh(self, tokens: Tokens) -> Tokens | None:
+        """POST /auth/refresh. None when the refresh token is no longer valid."""
+        try:
+            response = await self._client.post("/auth/refresh", json={"refreshToken": tokens.refresh_token})
+        except httpx.TransportError as exc:
+            log.warning("GOLOW API /auth/refresh failed: %s", exc)
+            raise
+        if response.status_code != 200:
+            return None
+        data = response.json().get("data") or {}
+        if not data.get("accessToken"):
+            return None
+        return Tokens(data["accessToken"], data.get("refreshToken") or tokens.refresh_token)
+
+    async def revoke(self, tokens: Tokens) -> None:
+        if not tokens.refresh_token:
+            return
+        try:
+            await self._client.post("/auth/logout", json={"refreshToken": tokens.refresh_token}, headers={"Authorization": f"Bearer {tokens.access_token}"})
+        except httpx.TransportError:
+            pass
+
+    async def admin_get(self, path: str, params: dict, tokens: Tokens) -> httpx.Response:
+        """An authenticated admin GET. Raises httpx.TransportError when the API can't be reached."""
+        return await self._client.get(path, params=params, headers={"Authorization": f"Bearer {tokens.access_token}"})
 
     async def public_get(self, path: str, params: dict[str, str]) -> httpx.Response | None:
         """An anonymous GET on the public API (the studio's read-only proxy). No internal key is sent."""
