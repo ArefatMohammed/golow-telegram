@@ -19,8 +19,9 @@
 
   function apiPill() {
     var s = G.live.status(), p = $("apiPill");
-    p.className = "pill " + (s === "live" ? "ok" : s === "reconnecting" ? "warn" : "");
-    p.textContent = s === "live" ? "API: live · " + (cfg.apiHost || "") : s === "reconnecting" ? "API: reconnecting…" : "API: connecting…";
+    p.className = "pill " + (s === "live" || s === "polling" ? "ok" : "");
+    p.textContent = (s === "live" ? "API: live · " : s === "polling" ? "API: polling · " : "API: connecting · ") + (cfg.apiHost || "");
+    p.title = s === "polling" ? "No live-events hub on the API: refreshing every few seconds." : "";
     if (apiError) { p.className = "pill bad"; p.textContent = "API: error"; }
   }
   var apiError = false;
@@ -70,9 +71,8 @@
     return G.listAuctions().then(function (list) {
       apiError = false; apiPill();
       auctions = list;
-      if (!onair || !list.some(function (a) { return a.id === onair; })) {
-        if (list.length && !(onair && lastState && lastState.auctionId === onair)) putOnAir(list[0].id, true);
-      }
+      // Only when nothing is on air: an auction that just ended leaves the list but stays on air for its result.
+      if (!onair && list.length) putOnAir(list[0].id, true);
       renderAuctions(); renderOnAir();
     }).catch(function (e) {
       if (e.status === 401) { location.replace("login"); return; }
@@ -113,6 +113,7 @@
     } else if (type === "reconnected") loadAuctions();
   });
   G.live.joinList();
+  setInterval(function () { if (G.live.status() !== "live") loadAuctions(); }, 5000);
 
   // ---------- on air ----------
   Bus.on("state", function (d) { lastState = d; lastBeat = Date.now(); });

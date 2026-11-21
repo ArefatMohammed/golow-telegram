@@ -61,8 +61,7 @@
     var s = G.live.status(), el = $("status");
     el.className = "status";
     if (state.error) { el.textContent = "API: " + state.error; el.classList.add("bad"); return; }
-    el.textContent = s === "live" ? "● live" : s === "reconnecting" ? "reconnecting…" : "connecting…";
-    if (s === "reconnecting") el.classList.add("bad");
+    el.textContent = s === "live" ? "● live" : s === "polling" ? "● polling" : "connecting…";
   }
 
   // ---------- alerts ----------
@@ -188,7 +187,7 @@
     if (state.id && state.id !== id) G.live.leaveAuction(state.id);
     queue.clear(); Fx.clear($("toasts"));
     ["rules", "message", "winner"].forEach(hide);
-    state = { id: id, a: null, count: 0, target: null, done: false, mute: state.mute, cardOn: state.cardOn };
+    state = { id: id, a: null, count: 0, target: null, done: false, mute: state.mute, cardOn: state.cardOn, closed: false, finalized: false, cancelled: false };
     rate = new U.RateWindow(60000);
     if (!id) {
       $("card").classList.add("hidden");
@@ -207,9 +206,19 @@
       state.error = null;
       var had = !!state.a;
       state.a = a; state.target = a.targetBidCount || null;
-      state.done = !U.isLive(a);
-      if (initial || !had) { state.count = a.activeBidCount || 0; renderCard(); }
-      else { renderCard(); onCount(a.activeBidCount || 0); } // catch-up after a reconnect alerts like live bids
+      if (initial || !had) {
+        // Already over when we tuned in: no toasts, just the finished card.
+        state.done = !U.isLive(a);
+        state.closed = state.finalized = U.isFinished(a) || !U.isLive(a);
+        state.cancelled = U.isCancelled(a);
+        state.count = a.activeBidCount || 0; renderCard();
+      } else {
+        renderCard(); onCount(a.activeBidCount || 0); // new bids since the last poll alert like live ones
+        // Without the hub, status changes are noticed here.
+        if (U.isCancelled(a)) onCancelled();
+        else if (U.isFinished(a)) onFinalized();
+        else if (!U.isLive(a)) onClosed();
+      }
       setStatus(); heartbeat();
     }).catch(function (e) {
       state.error = (e.status ? e.status + " " : "") + e.message;
@@ -222,26 +231,43 @@
     if (type === "reconnected") { refetch(false); return; }
     if (!p || Number(p.auctionId) !== Number(state.id)) return;
     if (type === "bidCountChanged") onCount(Number(p.activeBidCount) || 0);
-    else if (type === "auctionClosed") {
-      state.done = true; tick();
-      Fx.toast($("toasts"), T.closed, { long: true, color: "red" });
-      Sound.play("closed", "Bidding closed");
-      log("closed", "Bidding closed");
-      heartbeat();
-    } else if (type === "auctionFinalized") { state.done = true; log("finalized", "Finalized"); showWinner(true); }
-    else if (type === "auctionCancelled") {
-      state.done = true; tick();
-      Fx.toast($("toasts"), T.cancelled, { long: true, color: "red" });
-      Sound.play("closed", "Auction cancelled");
-      log("cancelled", "Auction cancelled");
-    } else if (type === "auctionStarted") refetch(false);
+    else if (type === "auctionClosed") onClosed();
+    else if (type === "auctionFinalized") onFinalized();
+    else if (type === "auctionCancelled") onCancelled();
+    else if (type === "auctionStarted") refetch(false);
   });
+
+  // Each runs once per auction, whether the hub or a poll noticed it first.
+  function onClosed() {
+    if (state.closed) return;
+    state.closed = state.done = true; tick();
+    Fx.toast($("toasts"), T.closed, { long: true, color: "red" });
+    Sound.play("closed", "Bidding closed");
+    log("closed", "Bidding closed");
+    heartbeat();
+  }
+  function onFinalized() {
+    if (state.finalized) return;
+    var wasClosed = state.closed;
+    onClosed();
+    state.finalized = true;
+    log("finalized", "Finalized");
+    // Give the closed toast a moment when both arrive in the same poll.
+    setTimeout(function () { showWinner(true); }, wasClosed ? 0 : 2500);
+  }
+  function onCancelled() {
+    if (state.cancelled) return;
+    state.cancelled = state.closed = state.finalized = state.done = true; tick();
+    Fx.toast($("toasts"), T.cancelled, { long: true, color: "red" });
+    Sound.play("closed", "Auction cancelled");
+    log("cancelled", "Auction cancelled");
+  }
 
   G.live.onStatus(function (s) {
     setStatus();
-    // While the hub is down, poll the detail endpoint every 5 s so the count stays right.
+    // Without the hub, poll the detail endpoint every 3 s: bids, closing and the winner all come from it.
     clearInterval(timers.poll);
-    if (s === "reconnecting") timers.poll = setInterval(function () { refetch(false); }, 5000);
+    if (s !== "live") timers.poll = setInterval(function () { refetch(false); }, 3000);
   });
 
   // ---------- panel commands ----------

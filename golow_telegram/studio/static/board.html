@@ -66,7 +66,20 @@
       if (up && sound) GolowSound.play("new-bid");
     } else if (type !== "bidCountChanged") reload();
   });
-  G.live.onStatus(function (s) { if (s === "reconnecting") document.getElementById("status").textContent = "reconnecting…"; });
+  // Without the hub, reload every 5 s and flash the rows whose count went up.
+  function poll() {
+    if (G.live.status() === "live") return;
+    var before = Object.assign({}, counts);
+    G.listAuctions().then(function (list) {
+      items = list;
+      var up = list.filter(function (a) { return a.activeBidCount > (before[a.id] == null ? a.activeBidCount : before[a.id]); });
+      list.forEach(function (a) { counts[a.id] = a.activeBidCount; });
+      render(up.length ? up[0].id : null);
+      if (up.length && sound) GolowSound.play("new-bid");
+      document.getElementById("status").textContent = "";
+    }).catch(function (e) { document.getElementById("status").textContent = "API: " + e.message; });
+  }
+  setInterval(poll, 5000);
   G.live.joinList();
   reload();
   setInterval(reload, 60000);

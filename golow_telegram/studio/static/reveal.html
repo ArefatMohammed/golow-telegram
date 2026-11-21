@@ -66,7 +66,7 @@
       })();
     }).catch(function (e) {
       if (mine !== run) return;
-      var msg = e.status === 403 ? T.revealGated : e.message;
+      var msg = e.status === 400 || e.status === 403 ? T.revealGated : e.message;
       $("status").textContent = msg;
       log("error", "Reveal: " + msg, id);
     });

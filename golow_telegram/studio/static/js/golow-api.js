@@ -32,7 +32,11 @@
   }
 
   function statusIs(a, name) { return !!a && String(a.status || "").toLowerCase() === name.toLowerCase(); }
-  function isLive(a) { return statusIs(a, "live"); }
+  // The API calls an auction in progress "Active" ("Live" in older docs). A finished one is "Ended" with an
+  // outcome (WinnerDeclared / NoUniqueBid), or "Settled".
+  function isLive(a) { return statusIs(a, "active") || statusIs(a, "live"); }
+  function isFinished(a) { return !!a && (!!a.outcome || statusIs(a, "settled") || statusIs(a, "finalized")); }
+  function isCancelled(a) { return statusIs(a, "cancelled"); }
 
   // Server clock skew (server UTC − local clock), from JoinAuction results and REST serverTimeUtc.
   var skew = 0;
@@ -86,7 +90,7 @@
   }
 
   var rest = {
-    listAuctions: function () { return get("auctions?status=live&pageSize=50").then(function (d) { return (d && d.items) || []; }); },
+    listAuctions: function () { return get("auctions?status=Active&pageSize=50").then(function (d) { return (d && d.items) || []; }); },
     getAuction: function (id) { return get("auctions/" + Number(id)); },
     getResult: function (id) { return get("auctions/" + Number(id) + "/result"); },
     /** All bid groups, lowest amount first (up to 5 pages of 100). 403 until the auction is finalized. */
@@ -148,15 +152,16 @@
           .configureLogging(signalR.LogLevel.Warning)
           .build();
         EVENTS.forEach(function (ev) { conn.on(ev, function (p) { dispatch(ev, p); }); });
-        conn.onreconnecting(function () { setStatus("reconnecting"); });
+        conn.onreconnecting(function () { setStatus("polling"); });
         conn.onreconnected(function () { setStatus("live"); rejoin(); dispatch("reconnected", {}); });
-        conn.onclose(function () { setStatus("reconnecting"); setTimeout(function () { starting = false; start(); }, 30000); });
+        conn.onclose(function () { setStatus("polling"); setTimeout(function () { starting = false; start(); }, 30000); });
       }
       return conn.start().then(function () { starting = false; setStatus("live"); rejoin(); dispatch("reconnected", {}); });
     }).catch(function (e) {
-      console.warn("Hub connection failed", e);
-      starting = false; setStatus("reconnecting");
-      setTimeout(start, 5000);
+      console.info("Live hub unavailable, polling instead:", e && e.message);
+      // No hub (the API may not run one): pages poll the REST API meanwhile. Retry now and then.
+      starting = false; setStatus("polling");
+      setTimeout(start, 60000);
     });
   }
 
@@ -188,7 +193,7 @@
     lsGet: lsGet, lsSet: lsSet,
     listAuctions: rest.listAuctions, getAuction: rest.getAuction, getResult: rest.getResult, getBidGroups: rest.getBidGroups,
     live: live,
-    util: { esc: esc, money: money, fmtCountdown: fmtCountdown, isLive: isLive, statusIs: statusIs, now: now, noteServerTime: noteServerTime, AlertQueue: AlertQueue, RateWindow: RateWindow, revealStep: revealStep },
+    util: { esc: esc, money: money, fmtCountdown: fmtCountdown, isLive: isLive, isFinished: isFinished, isCancelled: isCancelled, statusIs: statusIs, now: now, noteServerTime: noteServerTime, AlertQueue: AlertQueue, RateWindow: RateWindow, revealStep: revealStep },
     HttpError: HttpError
   };
   start();
