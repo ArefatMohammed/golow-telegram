@@ -1,7 +1,7 @@
 """Client for the GOLOW backend's internal Telegram endpoints."""
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import httpx
@@ -9,6 +9,24 @@ import httpx
 log = logging.getLogger(__name__)
 
 LinkOutcome = Literal["LinkedExisting", "CreatedAccount", "AlreadyLinked", "conflict", "invalid", "error"]
+
+
+AdminLoginOutcome = Literal["ok", "invalid", "invalid_phone", "not_admin", "throttled", "error"]
+
+
+@dataclass(frozen=True)
+class AdminLogin:
+    outcome: AdminLoginOutcome
+    user_id: int | None = None
+    name: str | None = None
+    access_token: str | None = field(default=None, repr=False)
+    refresh_token: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
+class Tokens:
+    access_token: str = field(repr=False)
+    refresh_token: str = field(repr=False)
 
 
 @dataclass(frozen=True)
@@ -63,6 +81,79 @@ class GolowApi:
     async def unlink(self, telegram_user_id: int) -> bool:
         response = await self._post("/internal/telegram/unlink", {"telegramUserId": telegram_user_id})
         return response is not None and response.status_code == 200
+
+    async def admin_login(self, phone: str, password: str) -> AdminLogin:
+        """Signs in with the admin platform's credentials (POST /auth/login) and confirms the account is an active
+        admin by calling an admin-only endpoint, which applies the backend's own Admin policy. The tokens are
+        returned to the caller (the studio keeps them server-side for the new-user feed) and revoked otherwise."""
+        try:
+            response = await self._client.post("/auth/login", json={"phone": phone, "password": password})
+        except httpx.TransportError as exc:
+            log.warning("GOLOW API /auth/login failed: %s", exc)
+            return AdminLogin("error")
+        if response.status_code == 429:
+            return AdminLogin("throttled")
+        if response.status_code == 400:
+            return AdminLogin("invalid_phone")  # e.g. "Enter a valid Ethiopian phone number (09xxxxxxxx, …)"
+        if response.status_code in (401, 403, 404):
+            return AdminLogin("invalid")
+        if response.status_code != 200:
+            log.error("Studio login failed: HTTP %s", response.status_code)
+            return AdminLogin("error")
+        data = response.json().get("data") or {}
+        access, refresh = data.get("accessToken"), data.get("refreshToken")
+        if not access:
+            return AdminLogin("invalid")
+        auth = {"Authorization": f"Bearer {access}"}
+        try:
+            check = await self._client.get("/admin/auctions", params={"pageSize": 1}, headers=auth)
+        except httpx.TransportError as exc:
+            log.warning("GOLOW API admin check failed: %s", exc)
+            check = None
+        if check is None or check.status_code != 200 or not refresh:
+            await self.revoke(Tokens(access, refresh or ""))
+        if check is None:
+            return AdminLogin("error")
+        if check.status_code in (401, 403):
+            return AdminLogin("not_admin")
+        if check.status_code != 200:
+            log.error("Studio admin check failed: HTTP %s", check.status_code)
+            return AdminLogin("error")
+        return AdminLogin("ok", data.get("userId"), data.get("fullName"), access, refresh)
+
+    async def refresh(self, tokens: Tokens) -> Tokens | None:
+        """POST /auth/refresh. None when the refresh token is no longer valid."""
+        try:
+            response = await self._client.post("/auth/refresh", json={"refreshToken": tokens.refresh_token})
+        except httpx.TransportError as exc:
+            log.warning("GOLOW API /auth/refresh failed: %s", exc)
+            raise
+        if response.status_code != 200:
+            return None
+        data = response.json().get("data") or {}
+        if not data.get("accessToken"):
+            return None
+        return Tokens(data["accessToken"], data.get("refreshToken") or tokens.refresh_token)
+
+    async def revoke(self, tokens: Tokens) -> None:
+        if not tokens.refresh_token:
+            return
+        try:
+            await self._client.post("/auth/logout", json={"refreshToken": tokens.refresh_token}, headers={"Authorization": f"Bearer {tokens.access_token}"})
+        except httpx.TransportError:
+            pass
+
+    async def admin_get(self, path: str, params: dict, tokens: Tokens) -> httpx.Response:
+        """An authenticated admin GET. Raises httpx.TransportError when the API can't be reached."""
+        return await self._client.get(path, params=params, headers={"Authorization": f"Bearer {tokens.access_token}"})
+
+    async def public_get(self, path: str, params: dict[str, str]) -> httpx.Response | None:
+        """An anonymous GET on the public API (the studio's read-only proxy). No internal key is sent."""
+        try:
+            return await self._client.get(path, params=params)
+        except httpx.TransportError as exc:
+            log.warning("GOLOW API GET %s failed: %s", path, exc)
+            return None
 
     async def _post(self, path: str, body: dict) -> httpx.Response | None:
         # Linking is idempotent on the backend, so one retry on a network error is safe.

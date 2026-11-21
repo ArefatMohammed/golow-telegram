@@ -13,20 +13,22 @@ from aiogram.enums import ParseMode
 from aiogram.types import BotCommand, MenuButtonWebApp, Update, WebAppInfo
 from fastapi import FastAPI, Header, HTTPException, Request
 
-from . import notify
+from . import notify, studio
 from .api import GolowApi
 from .config import Settings, get_settings
 from .handlers import build_router
+from .studio.feed import NewUserFeed
 
 log = logging.getLogger(__name__)
 
 
-def build_dispatcher(settings: Settings, api: GolowApi) -> Dispatcher:
+def build_dispatcher(settings: Settings, api: GolowApi, welcome_feed: NewUserFeed | None = None) -> Dispatcher:
     dp = Dispatcher()
     dp.include_router(build_router())
     # Injected into handlers by parameter name.
     dp["settings"] = settings
     dp["api"] = api
+    dp["welcome_feed"] = welcome_feed
     return dp
 
 
@@ -57,14 +59,22 @@ class _SeenUpdates:
 
 
 def create_app(settings: Settings | None = None, bot: Bot | None = None, api: GolowApi | None = None) -> FastAPI:
+    if not logging.getLogger().handlers:  # under uvicorn, make this service's own log lines visible too
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     settings = settings or get_settings()
     bot = bot or Bot(settings.bot_token.get_secret_value(), default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     api = api or GolowApi(settings.golow_api_url, settings.internal_key.get_secret_value())
-    dp = build_dispatcher(settings, api)
+    welcome_feed = NewUserFeed(api) if settings.studio_secret is not None else None
+    dp = build_dispatcher(settings, api, welcome_feed)
     seen = _SeenUpdates()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        log.info(
+            "GolowBidBot (%s): API %s, Mini App %s, studio %s",
+            settings.environment, settings.golow_api_url, settings.miniapp_url,
+            f"on {settings.studio_host}" if settings.studio_secret else "off",
+        )
         if settings.setup_bot_profile:
             await setup_bot_profile(bot, settings)
         polling: asyncio.Task | None = None
@@ -96,6 +106,8 @@ def create_app(settings: Settings | None = None, bot: Bot | None = None, api: Go
     app.state.bot = bot
     app.state.dp = dp
     app.include_router(notify.router)
+    if settings.studio_secret is not None:
+        studio.mount(app, settings, api, welcome_feed)
 
     @app.post("/telegram/webhook")
     async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: str | None = Header(default=None)) -> dict:

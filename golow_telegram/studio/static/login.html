@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GOLOW Live Studio — Sign in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+Ethiopic:wght@400;500;700;800;900&display=swap">
+<link rel="stylesheet" href="css/panel.css">
+</head>
+<body class="login">
+<form class="box" id="form" autocomplete="on">
+  <div class="brand"><span class="logo">G</span><span class="env" id="env"></span></div>
+  <h1>GOLOW <span>Live Studio</span></h1>
+  <p class="muted">Sign in with your GOLOW admin account.</p>
+  <label>Phone number<input name="phone" type="tel" inputmode="tel" autocomplete="username" placeholder="09…" required></label>
+  <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+  <button type="submit" class="primary" id="go">Sign in</button>
+  <p class="err" id="err" role="alert"></p>
+</form>
+<script src="config.js"></script>
+<script src="js/login.js"></script>
+</body>
+</html>

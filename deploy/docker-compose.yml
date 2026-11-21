@@ -1,0 +1,15 @@
+# One stack per environment, side by side on the same server:
+#   docker compose -p golow-bot-dev  --env-file deploy/dev.compose.env  -f deploy/docker-compose.yml up -d
+#   docker compose -p golow-bot-prod --env-file deploy/prod.compose.env -f deploy/docker-compose.yml up -d
+# The *.compose.env files choose the image, the local port and the app's own env file (.env.dev / .env.prod,
+# made from .env.example). nginx sends each environment's webhook and studio host to its port.
+services:
+  bot:
+    image: ${IMAGE:?set IMAGE in the compose env file}
+    env_file: ${APP_ENV_FILE:?set APP_ENV_FILE in the compose env file}
+    ports:
+      - "127.0.0.1:${PORT:?set PORT}:8000"
+    restart: unless-stopped
+    # Keep exactly one instance per environment: the studio's welcome feed lives in this process.
+    deploy:
+      replicas: 1
