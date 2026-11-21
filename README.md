@@ -99,8 +99,8 @@ Dev and production run side by side, one container each, with the files in [`dep
 1. **Images**: CI builds `ghcr.io/<owner>/golow-telegram:development` from the `development` branch and `:main` from `main`. Put the owner in `deploy/dev.compose.env` / `deploy/prod.compose.env`.
 2. **App settings**: create `.env.dev` (`ENVIRONMENT=dev`) and `.env.prod` (`ENVIRONMENT=prod`) next to `deploy/`, from `.env.example`. Each has its own bot token, internal key, webhook secret and studio secret.
 3. **Start**: `docker compose -p golow-bot-dev --env-file deploy/dev.compose.env -f deploy/docker-compose.yml up -d`, and the same with `prod`. Dev listens on `127.0.0.1:8100`, production on `127.0.0.1:8000`.
-4. **nginx + TLS**: `deploy/nginx/live-dev.golow.et.conf` and `live.golow.et.conf` send the studio hosts to those ports (`certbot --nginx -d live-dev.golow.et` etc.). Each bot's webhook location goes to its own port too.
-5. **DNS**: `A` records for `live-dev` and `live` pointing to the server.
+4. **nginx + TLS**: install `deploy/nginx/live-dev.golow.et.conf` and `live.golow.et.conf` (they send the studio hosts to those ports), then `sudo certbot --nginx -d live-dev.golow.et -d live.golow.et --redirect` adds HTTPS. Each bot's webhook location goes to its own port too.
+5. **DNS**: `A` records for `live-dev` and `live` pointing to the server (done: 178.104.188.38).
 
 - **Network**: run it on the internal Docker network next to the backend. Only `/telegram/webhook` (on the bot's host) and the whole `STUDIO_HOST` should be reachable from the internet. `/internal/notify` must stay internal.
 - **One instance per environment**: the studio's welcome feed and its admin session live in that process. After a restart, an admin signs in to the panel once to bring back website sign-up welcomes.
